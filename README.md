@@ -35,6 +35,7 @@ This repository is for the GraphRAG-Bench project, a comprehensive benchmark for
 
 <h2 id="news">🎉 News</h2>
 
+- **[2026-01-26]** Our [GraphRAG-Bench](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) is accepted by ICLR’26. 
 - **[2025-10-27]** We release [LinearRAG](https://github.com/DEEP-PolyU/LinearRAG), a relation-free method for efficient GraphRAG.
 - **[2025-08-24]** We support [DIGIMON](https://github.com/JayLZhou/GraphRAG) for flexible benchmarking across GraphRAG models.
 - **[2025-05-25]** We release [GraphRAG-Bench](https://graphrag-bench.github.io), the benchmark for evaluating GraphRAG models.
