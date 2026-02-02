@@ -48,16 +48,6 @@ Graph retrieval-augmented generation (GraphRAG) has emerged as a powerful paradi
 
 </details>
 
-If you find this benchmark helpful, please cite our paper:
-
-```
-@article{xiang2025use,
-  title={When to use Graphs in RAG: A Comprehensive Analysis for Graph Retrieval-Augmented Generation},
-  author={Xiang, Zhishang and Wu, Chuanjie and Zhang, Qinggang and Chen, Shengyuan and Hong, Zijin and Huang, Xiao and Su, Jinsong},
-  journal={arXiv preprint arXiv:2506.05690},
-  year={2025}
-}
-```
 
 <h2 id="leaderboards">🏆 Leaderboards</h2>
 
@@ -147,7 +137,3 @@ If you find this benchmark helpful, please cite our paper:
   year={2025}
 }
 ```
-
-<h2 id="stars">✨ Stars History</h2>
-
-[![Star History Chart](https://api.star-history.com/svg?repos=GraphRAG-Bench/GraphRAG-Benchmark&type=Date)](https://www.star-history.com/#GraphRAG-Bench/GraphRAG-Benchmark&Date)
