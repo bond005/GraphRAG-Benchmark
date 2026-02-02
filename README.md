@@ -19,6 +19,18 @@
   </p>
 </div>
 
+
+<h2 id="news">🎉 News</h2>
+
+- **[2026-01-26]** Our [Benchmark](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) is accepted by ICLR’26. 
+- **[2025-10-27]** We release [LinearRAG](https://github.com/DEEP-PolyU/LinearRAG), a relation-free method for efficient GraphRAG.
+- **[2025-08-24]** We support [DIGIMON](https://github.com/JayLZhou/GraphRAG) for flexible benchmarking across GraphRAG models.
+- **[2025-05-25]** We release [GraphRAG-Bench](https://graphrag-bench.github.io), the benchmark for evaluating GraphRAG models.
+- **[2025-05-14]** We release the [GraphRAG-Bench dataset](https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench).
+- **[2025-01-21]** We release the [GraphRAG survey](https://github.com/DEEP-PolyU/Awesome-GraphRAG).
+
+<h2 id="about">📖 About</h2>
+
 If you find this benchmark helpful, please cite our paper:
 
 ```
@@ -32,17 +44,6 @@ If you find this benchmark helpful, please cite our paper:
 
 This repository is for the GraphRAG-Bench project, a comprehensive benchmark for evaluating Graph Retrieval-Augmented Generation models.
 ![pipeline](./pipeline.jpg)
-
-<h2 id="news">🎉 News</h2>
-
-- **[2026-01-26]** Our [Benchmark](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) is accepted by ICLR’26. 
-- **[2025-10-27]** We release [LinearRAG](https://github.com/DEEP-PolyU/LinearRAG), a relation-free method for efficient GraphRAG.
-- **[2025-08-24]** We support [DIGIMON](https://github.com/JayLZhou/GraphRAG) for flexible benchmarking across GraphRAG models.
-- **[2025-05-25]** We release [GraphRAG-Bench](https://graphrag-bench.github.io), the benchmark for evaluating GraphRAG models.
-- **[2025-05-14]** We release the [GraphRAG-Bench dataset](https://huggingface.co/datasets/GraphRAG-Bench/GraphRAG-Bench).
-- **[2025-01-21]** We release the [GraphRAG survey](https://github.com/DEEP-PolyU/Awesome-GraphRAG).
-
-<h2 id="about">📖 About</h2>
 
 - Introduces Graph Retrieval-Augmented Generation (GraphRAG) concept
 - Compares traditional RAG vs GraphRAG approach
