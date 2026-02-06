@@ -22,7 +22,7 @@
 
 <h2 id="news">🎉 News</h2>
 
-- **[2026-01-26]** Our [Benchmark](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) is accepted by ICLR’26.
+- **[2026-01-26]** Our [GraphRAG Benchmark](https://github.com/GraphRAG-Bench/GraphRAG-Benchmark) is accepted by ICLR’26.
 - **[2026-01-26]** Our [LinearRAG](https://github.com/DEEP-PolyU/LinearRAG) is accepted by ICLR’26.
 - **[2025-10-27]** We release [LinearRAG](https://github.com/DEEP-PolyU/LinearRAG), a relation-free method for efficient GraphRAG.
 - **[2025-08-24]** We support [DIGIMON](https://github.com/JayLZhou/GraphRAG) for flexible benchmarking across GraphRAG models.
