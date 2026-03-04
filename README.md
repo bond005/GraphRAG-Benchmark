@@ -29,6 +29,10 @@
 - **[2025-05-25]** We release the [GraphRAG Benchmark](https://graphrag-bench.github.io) for evaluating GraphRAG models.
 - **[2025-01-21]** We release the [GraphRAG survey](https://github.com/DEEP-PolyU/Awesome-GraphRAG).
 
+📫 **Contact us via emails:** `{xiangzhishang,wuchuanjie}@stu.xmu.edu.cn`, `qinggang.zhang@polyu.edu.hk`
+
+**📃 Please [cite our paper](#-citation)** if you find our survey or repository helpful!
+
 <h2 id="about">📖 About</h2>
 
 
@@ -121,13 +125,13 @@ Note that the evaluation code is standardized across all frameworks to ensure fa
 
 
 
-<h2 id="contribution--contact">📬 Contribution & Contact</h2>
+<!-- <h2 id="contribution--contact">📬 Contribution & Contact</h2>
 
-Contributions to improve the benchmark website are welcome. Please contact the project team via <a href="mailto:GraphRAG@hotmail.com">GraphRAG@hotmail.com </a>.
+Contributions to improve the benchmark website are welcome. Please contact the project team via <a href="mailto:GraphRAG@hotmail.com">GraphRAG@hotmail.com </a>. -->
 
-<h2 id="citation">📝 Citation</h2>
 
-If you find this benchmark helpful, please cite our paper:
+# 🍀 Citation 
+If you find this survey helpful, please cite our paper:
 
 ```
 @article{xiang2025use,
