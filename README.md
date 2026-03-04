@@ -29,9 +29,10 @@
 - **[2025-05-25]** We release the [GraphRAG Benchmark](https://graphrag-bench.github.io) for evaluating GraphRAG models.
 - **[2025-01-21]** We release the [GraphRAG survey](https://github.com/DEEP-PolyU/Awesome-GraphRAG).
 
+
+📃 ** Please [cite our paper](#-citation)** if you find our survey or repository helpful!
 📫 **Contact us via emails:** `{xiangzhishang,wuchuanjie}@stu.xmu.edu.cn`, `qinggang.zhang@polyu.edu.hk`
 
-**📃 Please [cite our paper](#-citation)** if you find our survey or repository helpful!
 
 <h2 id="about">📖 About</h2>
 
