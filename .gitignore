@@ -1,2 +1,8 @@
 .idea
-*_workspace
+Examples/*_workspace
+Examples/workspace_*
+Examples/*_workspace_*
+Examples/*_results
+Examples/results_*
+Examples/*_results_*
+__pycache__

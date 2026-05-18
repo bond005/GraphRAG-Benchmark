@@ -154,6 +154,7 @@ async def process_corpus(
     corpus_name: str,
     context: str,
     base_dir: str,
+    results_dir: str,
     mode: str,
     model_name: str,
     embed_model_name: str,
@@ -196,7 +197,7 @@ async def process_corpus(
     logging.info(f"🔍 Found {len(corpus_questions)} questions for {corpus_name}")
     
     # Prepare output path
-    output_dir = f"./results/lightrag/{corpus_name}"
+    output_dir = f"{results_dir}/{corpus_name}"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
     
@@ -205,22 +206,45 @@ async def process_corpus(
     query_type = 'hybrid'
     
     for q in tqdm(corpus_questions, desc=f"Answering questions for {corpus_name}"):
-        # Prepare query parameters
+        # Prepare query parameters for retrieved context
         query_param = QueryParam(
             mode=query_type,
             top_k=retrieve_topk,
             max_token_for_text_unit=4000,
             max_token_for_global_context=4000,
-            max_token_for_local_context=4000
+            max_token_for_local_context=4000,
+            only_need_context=True
         )
         
         # Execute query
-        response, context = rag.query(
+        response = rag.query(
             q["question"],
             param=query_param,
             system_prompt=SYSTEM_PROMPT
         )
         
+        # Handle both async and sync responses
+        if asyncio.iscoroutine(response):
+            response = await response
+        retrieved_context = str(response)
+
+        # Prepare query parameters for predicted answer
+        query_param = QueryParam(
+            mode=query_type,
+            top_k=retrieve_topk,
+            max_token_for_text_unit=4000,
+            max_token_for_global_context=4000,
+            max_token_for_local_context=4000,
+            only_need_context=False
+        )
+
+        # Execute query
+        response = rag.query(
+            q["question"],
+            param=query_param,
+            system_prompt=SYSTEM_PROMPT
+        )
+
         # Handle both async and sync responses
         if asyncio.iscoroutine(response):
             response = await response
@@ -231,7 +255,7 @@ async def process_corpus(
             "id": q["id"],
             "question": q["question"],
             "source": corpus_name,
-            "context": context,
+            "context": retrieved_context,
             "evidence": q["evidence"],
             "question_type": q["question_type"],
             "generated_answer": predicted_answer,
@@ -264,6 +288,7 @@ def main():
     parser.add_argument("--subset", required=True, choices=["medical", "novel"], 
                         help="Subset to process (medical or novel)")
     parser.add_argument("--base_dir", default="./lightrag_workspace", help="Base working directory")
+    parser.add_argument("--results_dir", default="./results", help="Directory with generated results")
     
     # Model configuration
     parser.add_argument("--mode", required=True, choices=["API", "ollama"], help="Use API or ollama for LLM")
@@ -347,6 +372,7 @@ def main():
                     corpus_name=item["corpus_name"],
                     context=item["context"],
                     base_dir=args.base_dir,
+                    results_dir=args.results_dir,
                     mode=args.mode,
                     model_name=args.model_name,
                     embed_model_name=args.embed_model,
