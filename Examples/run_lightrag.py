@@ -62,9 +62,9 @@ async def llm_model_func(
 ) -> str:
     """LLM interface function using OpenAI-compatible API"""
     # Get API configuration from kwargs
-    model_name = kwargs.get("model_name", "qwen2.5-14b-instruct")
-    base_url = kwargs.get("base_url", "")
-    api_key = kwargs.get("api_key", "")
+    model_name = kwargs.pop("model_name", "qwen2.5-14b-instruct")
+    base_url = kwargs.pop("base_url", "")
+    api_key = kwargs.pop("api_key", "")
     
     return await openai_complete_if_cache(
         model_name,
@@ -82,6 +82,7 @@ async def initialize_rag(
     mode:str,
     model_name: str,
     embed_model_name: str,
+    embed_size: int,
     llm_base_url: str,
     llm_api_key: str
 ) -> LightRAG:
@@ -92,11 +93,16 @@ async def initialize_rag(
     os.makedirs(working_dir, exist_ok=True)
     
     if mode == "API":
+        import torch
+
         tokenizer = AutoTokenizer.from_pretrained(embed_model_name)
-        embed_model = AutoModel.from_pretrained(embed_model_name)
+        embed_model = AutoModel.from_pretrained(embed_model_name, trust_remote_code=True)
+        if torch.cuda.is_available():
+            embed_model = embed_model.to('cuda:0')
+            logging.info("CUDA is available.")
         # Initialize embedding function
         embedding_func = EmbeddingFunc(
-            embedding_dim=1024,
+            embedding_dim=embed_size,
             max_token_size=8192,
             func=lambda texts: hf_embed(texts, tokenizer, embed_model),
         )
@@ -111,7 +117,7 @@ async def initialize_rag(
         llm_model_func_input = llm_model_func
     elif mode == "ollama":
         embedding_func = EmbeddingFunc(
-            embedding_dim=1024,
+            embedding_dim=embed_size,
             max_token_size=8192,
             func=lambda texts: ollama_embed(
                 texts, embed_model=embed_model_name, host=llm_base_url
@@ -123,14 +129,14 @@ async def initialize_rag(
             "options": {"num_ctx": 32768},
         }
 
-        llm_model_func = ollama_model_complete
+        llm_model_func_input = ollama_model_complete
     else:
         raise ValueError(f"Unsupported mode: {mode}. Use 'API' or 'ollama'.")
     
     # Create RAG instance
     rag = LightRAG(
         working_dir=working_dir,
-        llm_model_func=llm_model_func,
+        llm_model_func=llm_model_func_input,
         llm_model_name=model_name,
         llm_model_max_async=4,
         llm_model_max_token_size=32768,
@@ -151,6 +157,7 @@ async def process_corpus(
     mode: str,
     model_name: str,
     embed_model_name: str,
+    embed_size: int,
     llm_base_url: str,
     llm_api_key: str,
     questions: List[dict],
@@ -167,6 +174,7 @@ async def process_corpus(
         mode=mode,
         model_name=model_name,
         embed_model_name=embed_model_name,
+        embed_size=embed_size,
         llm_base_url=llm_base_url,
         llm_api_key=llm_api_key
     )
@@ -260,7 +268,8 @@ def main():
     # Model configuration
     parser.add_argument("--mode", required=True, choices=["API", "ollama"], help="Use API or ollama for LLM")
     parser.add_argument("--model_name", default="qwen2.5-14b-instruct", help="LLM model identifier")
-    parser.add_argument("--embed_model", default="bge-base-en", help="Embedding model name")
+    parser.add_argument("--embed_model", default="Alibaba-NLP/gte-multilingual-base", help="Embedding model name")
+    parser.add_argument("--embed_size", type=int, default=768, help="Embedding size")
     parser.add_argument("--retrieve_topk", type=int, default=5, help="Number of top documents to retrieve")
     parser.add_argument("--sample", type=int, default=None, help="Number of questions to sample per corpus")
     
@@ -341,6 +350,7 @@ def main():
                     mode=args.mode,
                     model_name=args.model_name,
                     embed_model_name=args.embed_model,
+                    embed_size=args.embed_size,
                     llm_base_url=args.llm_base_url,
                     llm_api_key=api_key,
                     questions=grouped_questions,
