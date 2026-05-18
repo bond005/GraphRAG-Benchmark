@@ -43,10 +43,12 @@ def process_corpus(
     mode: str,
     model_name: str,
     embed_model_path: str,
+    embed_size: int,
     llm_base_url: str,
     llm_api_key: str,
     questions: Dict[str, List[dict]],
-    sample: int
+    sample: int,
+    openai_emb: bool = False
 ):
     """Process a single corpus: index it and answer its questions"""
     logging.info(f"📚 Processing corpus: {corpus_name}")
@@ -56,14 +58,30 @@ def process_corpus(
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
     
-    # Initialize embedding model
-    try:
-        embedding_tokenizer = AutoTokenizer.from_pretrained(embed_model_path)
-        embedding_model = AutoModel.from_pretrained(embed_model_path)
-        logging.info(f"✅ Loaded embedding model: {embed_model_path}")
-    except Exception as e:
-        logging.error(f"❌ Failed to load embedding model: {e}")
-        return
+    # Initialize embedding service
+    if openai_emb:
+        from fast_graphrag._llm import OpenAIEmbeddingService
+        embedding_service = OpenAIEmbeddingService(
+            model=embed_model_path,
+            base_url=llm_base_url,
+            api_key=llm_api_key,
+            embedding_dim=embed_size,
+        )
+        logging.info(f"✅ Using OpenAI-compatible embedding service: {embed_model_path}")
+    else:
+        try:
+            embedding_tokenizer = AutoTokenizer.from_pretrained(embed_model_path)
+            embedding_model = AutoModel.from_pretrained(embed_model_path)
+            logging.info(f"✅ Loaded embedding model: {embed_model_path}")
+        except Exception as e:
+            logging.error(f"❌ Failed to load embedding model: {e}")
+            return
+        embedding_service = HuggingFaceEmbeddingService(
+            model=embedding_model,
+            tokenizer=embedding_tokenizer,
+            embedding_dim=embed_size,
+            max_token_size=8192
+        )
     
     # Initialize LLM service based on mode
     if mode == "ollama":
@@ -88,12 +106,7 @@ def process_corpus(
         entity_types=ENTITY_TYPES,
         config=GraphRAG.Config(
             llm_service=llm_service,
-            embedding_service=HuggingFaceEmbeddingService(
-                model=embedding_model,
-                tokenizer=embedding_tokenizer,
-                embedding_dim=1024,
-                max_token_size=8192
-            ),
+            embedding_service=embedding_service,
         ),
     )
     
@@ -175,8 +188,11 @@ def main():
                         help="LLM model identifier")
     parser.add_argument("--embed_model_path", default="/home/xzs/data/model/bge-large-en-v1.5", 
                         help="Path to embedding model directory")
+    parser.add_argument("--embed_size", type=int, default=1024,
+                        help="Embedding dimension")
     parser.add_argument("--sample", type=int, default=None, 
                         help="Number of questions to sample per corpus")
+    parser.add_argument("--openai_emb", action="store_true", help="Use OpenAI-compatible API for embeddings instead of local HuggingFace")
     
     # API configuration
     parser.add_argument("--llm_base_url", default="https://api.openai.com/v1", 
@@ -264,10 +280,12 @@ def main():
                 args.mode,
                 args.model_name,
                 args.embed_model_path,
+                args.embed_size,
                 args.llm_base_url,
                 api_key,
                 grouped_questions,
                 args.sample,
+                args.openai_emb,
             ))
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:

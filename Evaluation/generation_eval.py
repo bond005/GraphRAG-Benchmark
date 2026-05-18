@@ -20,7 +20,7 @@ async def evaluate_dataset(
     metrics: List[str],
     llm: Any,
     embeddings: Embeddings,
-    max_concurrent: int = 3,  # Limit concurrent evaluations
+    max_concurrent: int = 1,  # Limit concurrent evaluations
     detailed_output: bool = False
 ) -> Dict[str, Any]:
     """Evaluate the metric scores on the entire dataset."""
@@ -156,7 +156,7 @@ async def main(args: argparse.Namespace):
             base_url=args.base_url,
             api_key=SecretStr(api_key),
             temperature=0.0,
-            max_retries=3,
+            max_retries=5,
             timeout=30,
             model_kwargs={
                 "top_p": 1,

@@ -74,10 +74,12 @@ def process_corpus(
     mode: str,
     model_name: str,
     embed_model_path: str,
+    embed_size: int,
     llm_base_url: str,
     llm_api_key: str,
     questions: Dict[str, List[dict]],
-    sample: int
+    sample: int,
+    openai_emb: bool = False
 ):
     """Process a single corpus: index it and answer its questions"""
     logging.info(f"📚 Processing corpus: {corpus_name}")
@@ -88,9 +90,13 @@ def process_corpus(
     output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
     
     # Initialize tokenizer for text splitting
+    if openai_emb:
+        tokenizer_name = "bert-base-uncased"
+    else:
+        tokenizer_name = embed_model_path
     try:
-        tokenizer = AutoTokenizer.from_pretrained(embed_model_path)
-        logging.info(f"✅ Loaded tokenizer: {embed_model_path}")
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        logging.info(f"✅ Loaded tokenizer: {tokenizer_name}")
     except Exception as e:
         logging.error(f"❌ Failed to load tokenizer: {e}")
         return
@@ -119,11 +125,12 @@ def process_corpus(
     gold_answers = [[q['answer']] for q in corpus_questions]
     
     # Configure HippoRAG
+    embedding_model_name = embed_model_path if not openai_emb else "text-embedding-3-small"
     config = BaseConfig(
         save_dir=os.path.join(base_dir, corpus_name),
         llm_base_url=llm_base_url,
         llm_name=model_name,
-        embedding_model_name=embed_model_path,
+        embedding_model_name=embedding_model_name,
         force_index_from_scratch=True,
         force_openie_from_scratch=True,
         rerank_dspy_file_path="hipporag/prompts/dspy_prompts/filter_llama3.3-70B-Instruct.json",
@@ -145,6 +152,11 @@ def process_corpus(
     else:
         config.llm_mode = "openai"
         logging.info(f"✅ Using OpenAI mode: {model_name} at {llm_base_url}")
+    
+    if openai_emb:
+        if hasattr(config, 'embedding_dim'):
+            config.embedding_dim = embed_size
+        logging.info(f"✅ Using OpenAI embedding: {embedding_model_name} (dim={embed_size})")
     
     # Initialize HippoRAG
     hipporag = HippoRAG(global_config=config)
@@ -207,8 +219,11 @@ def main():
                         help="LLM model identifier")
     parser.add_argument("--embed_model_path", default="/home/xzs/data/model/contriever", 
                         help="Path to embedding model directory")
+    parser.add_argument("--embed_size", type=int, default=768,
+                        help="Embedding dimension (used with --openai_emb)")
     parser.add_argument("--sample", type=int, default=None, 
                         help="Number of questions to sample per corpus")
+    parser.add_argument("--openai_emb", action="store_true", help="Use OpenAI-compatible API for embeddings instead of local HuggingFace")
     
     # API configuration
     parser.add_argument("--llm_base_url", default="https://api.openai.com/v1", 
@@ -233,6 +248,9 @@ def main():
     api_key = args.llm_api_key or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         logging.warning("⚠️ No API key provided! Requests may fail.")
+    
+    if args.openai_emb and api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
     
     # Create workspace directory
     os.makedirs(args.base_dir, exist_ok=True)
@@ -286,10 +304,12 @@ def main():
                 args.mode,
                 args.model_name,
                 args.embed_model_path,
+                args.embed_size,
                 args.llm_base_url,
                 api_key,
                 grouped_questions,
                 args.sample,
+                args.openai_emb,
             ))
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:

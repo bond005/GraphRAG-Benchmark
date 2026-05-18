@@ -5,7 +5,7 @@ import logging
 import nest_asyncio
 import argparse
 import json
-from typing import Dict, List
+from typing import List
 from datasets import load_dataset
 
 from lightrag import LightRAG, QueryParam
@@ -84,7 +84,8 @@ async def initialize_rag(
     embed_model_name: str,
     embed_size: int,
     llm_base_url: str,
-    llm_api_key: str
+    llm_api_key: str,
+    openai_emb: bool = False
 ) -> LightRAG:
     """Initialize LightRAG instance for a specific corpus"""
     working_dir = os.path.join(base_dir, source)
@@ -93,19 +94,31 @@ async def initialize_rag(
     os.makedirs(working_dir, exist_ok=True)
     
     if mode == "API":
-        import torch
+        if openai_emb:
+            from lightrag.llm.openai import openai_embed
+            embedding_func = EmbeddingFunc(
+                embedding_dim=embed_size,
+                max_token_size=8192,
+                func=lambda texts: openai_embed(
+                    texts,
+                    model=embed_model_name,
+                    base_url=llm_base_url,
+                    api_key=llm_api_key,
+                ),
+            )
+        else:
+            import torch
 
-        tokenizer = AutoTokenizer.from_pretrained(embed_model_name)
-        embed_model = AutoModel.from_pretrained(embed_model_name, trust_remote_code=True)
-        if torch.cuda.is_available():
-            embed_model = embed_model.to('cuda:0')
-            logging.info("CUDA is available.")
-        # Initialize embedding function
-        embedding_func = EmbeddingFunc(
-            embedding_dim=embed_size,
-            max_token_size=8192,
-            func=lambda texts: hf_embed(texts, tokenizer, embed_model),
-        )
+            tokenizer = AutoTokenizer.from_pretrained(embed_model_name)
+            embed_model = AutoModel.from_pretrained(embed_model_name, trust_remote_code=True)
+            if torch.cuda.is_available():
+                embed_model = embed_model.to('cuda:0')
+                logging.info("CUDA is available.")
+            embedding_func = EmbeddingFunc(
+                embedding_dim=embed_size,
+                max_token_size=8192,
+                func=lambda texts: hf_embed(texts, tokenizer, embed_model),
+            )
         
         # Create LLM configuration
         llm_kwargs = {
@@ -163,7 +176,8 @@ async def process_corpus(
     llm_api_key: str,
     questions: List[dict],
     sample: int,
-    retrieve_topk: int
+    retrieve_topk: int,
+    openai_emb: bool = False
 ):
     """Process a single corpus: index it and answer its questions"""
     logging.info(f"📚 Processing corpus: {corpus_name}")
@@ -177,7 +191,8 @@ async def process_corpus(
         embed_model_name=embed_model_name,
         embed_size=embed_size,
         llm_base_url=llm_base_url,
-        llm_api_key=llm_api_key
+        llm_api_key=llm_api_key,
+        openai_emb=openai_emb
     )
     
     # Index the corpus content
@@ -297,6 +312,7 @@ def main():
     parser.add_argument("--embed_size", type=int, default=768, help="Embedding size")
     parser.add_argument("--retrieve_topk", type=int, default=5, help="Number of top documents to retrieve")
     parser.add_argument("--sample", type=int, default=None, help="Number of questions to sample per corpus")
+    parser.add_argument("--openai_emb", action="store_true", help="Use OpenAI-compatible API for embeddings instead of local HuggingFace")
     
     # API configuration
     parser.add_argument("--llm_base_url", default="https://api.openai.com/v1", 
@@ -381,7 +397,8 @@ def main():
                     llm_api_key=api_key,
                     questions=grouped_questions,
                     sample=args.sample,
-                    retrieve_topk=args.retrieve_topk
+                    retrieve_topk=args.retrieve_topk,
+                    openai_emb=args.openai_emb
                 )
             )
         results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -12,34 +12,7 @@ Next, we provide detailed instructions on how to use GraphRAG-Bench to evaluate 
 
 **We use LightRAG version v1.2.5.**
 
-Before running the above script, you need to modify the source code(LightRAG) to enable extraction of the corresponding context used during generation. Please make the following changes:
-
-1. In `lightrag/operate.py`, update the kg_query method to return the context along with the response:
-
-```python
-# Original Code
-async def kg_query(...) -> str | AsyncIterator[str]:
-  return response
-
-# Modified Code
-async def kg_query(...) -> tuple[str, str] | tuple[AsyncIterator[str], str]:
-  return response, context
-```
-
-2. In `lightrag/lightrag.py`, update the aquery method to receive and return the context when calling kg_query:
-
-```python
-# Modified Code
-async def aquery(...):
-  ...
-  if param.mode in ["local", "global", "hybrid"]:
-      response, context = await kg_query(...)
-  ...
-  return response, context
-
-```
-
-Then you can run the following command to indexing and inference
+You can run the following command to indexing and inference
 
 **Note**: Mode can choose:"API" or "ollama". When you choose "ollama" the "llm_base_url" is where your ollama running (default:http://localhost:11434)
 
@@ -50,8 +23,8 @@ python run_lightrag.py \
   --subset medical \
   --mode API \
   --base_dir ./Examples/lightrag_workspace \
-  --model_name bge-large-en-v1.5 \
-  --embed_model bge-base-en \
+  --model_name gpt-4o-mini \
+  --embed_model BAAI/bge-large-en-v1.5 \
   --retrieve_topk 5 \
   # --sample 100 \
   --llm_base_url https://api.openai.com/v1
@@ -363,6 +336,41 @@ python run_digimon.py \
   --output_dir ./results/test \
   # --sample 100
 ```
+
+#### e. RAGU
+
+[RAGU](https://github.com/RaguTeam/RAGU) (Retrieval-Augmented Graph Utility) is a modular GraphRAG engine. Unlike other frameworks, **no source code modifications are required**.
+
+Install RAGU:
+
+```shell
+pip install graph_ragu
+```
+
+RAGU uses a unified OpenAI-compatible API client for both LLM and embeddings. To use a local embedding model (e.g., BGE), you need an OpenAI-compatible embedding server (such as TEI or vLLM) and point `--llm_base_url` to it, or use an API provider that serves your desired embedding model.
+
+Run indexing and inference:
+
+```shell
+export LLM_API_KEY=your_actual_api_key_here
+
+python run_ragu.py \
+  --subset medical \
+  --search_engine local \
+  --base_dir ./Examples/ragu_workspace \
+  --results_dir ./Examples/ragu_results \
+  --model_name gpt-4o-mini \
+  --embed_model text-embedding-3-small \
+  --embed_size 1536 \
+  --retrieve_topk 5 \
+  --llm_base_url https://api.openai.com/v1
+  # --sample 100
+```
+
+The `--search_engine` option supports:
+- `local` (default): Entity-centric local search with entities, relations, community summaries, and source chunks.
+- `global`: Community-level global search with insight aggregation.
+- `mix`: Combined search using both local and global engines.
 
 We will continue updating other GraphRAG frameworks as much as possible. If you wish to integrate a different framework, you can refer to the structure of our result format. As long as your returned output matches the following fields, the evaluation code will run successfully:
 
