@@ -63,4 +63,5 @@ python -m Evaluation.indexing_eval \
 - `lightrag`: LightRAG (uses graph_chunk_entity_relation.graphml)
 - `fast_graphrag`: Fast-GraphRAG (uses graph_igraph_data.pklz)
 - `hipporag2`: HippoRAG2 (uses graph.pickle)
+- `ragu`: RAGU (uses knowledge_graph.gml)
 - `graphml`: Generic GraphML format graph files

@@ -341,10 +341,16 @@ python run_digimon.py \
 
 [RAGU](https://github.com/RaguTeam/RAGU) (Retrieval-Augmented Graph Utility) is a modular GraphRAG engine. Unlike other frameworks, **no source code modifications are required**.
 
-Install RAGU:
+Install RAGU (use the `fewshots` branch for In-Context Learning support):
 
 ```shell
 pip install graph_ragu
+```
+
+For the latest version with In-Context Learning (few-shot examples) support:
+
+```shell
+pip install git+https://github.com/RaguTeam/RAGU.git@fewshots
 ```
 
 RAGU uses a unified OpenAI-compatible API client for both LLM and embeddings. To use a local embedding model (e.g., BGE), you need an OpenAI-compatible embedding server (such as TEI or vLLM) and point `--llm_base_url` to it, or use an API provider that serves your desired embedding model.
@@ -367,6 +373,32 @@ python run_ragu.py \
   # --sample 100
 ```
 
+**In-Context Learning (few-shot examples):**
+
+When using the `fewshots` branch, you can enable In-Context Learning to improve entity/relation extraction quality during graph building. ICL selects the most relevant examples by semantic similarity and injects them into the LLM prompt:
+
+```shell
+python run_ragu.py \
+  --subset medical \
+  --search_engine local \
+  --icl_enabled \
+  --icl_num_examples 2 \
+  --icl_similarity_threshold 0.3 \
+  --icl_selection_strategy semantic \
+  --base_dir ./Examples/ragu_workspace \
+  --results_dir ./Examples/ragu_results \
+  --model_name gpt-4o-mini \
+  --embed_model text-embedding-3-small \
+  --embed_size 1536 \
+  --llm_base_url https://api.openai.com/v1
+```
+
+ICL options:
+- `--icl_enabled`: Enable In-Context Learning for extraction (default: disabled)
+- `--icl_num_examples`: Number of few-shot examples per extraction call, 1-3 recommended (default: 2)
+- `--icl_similarity_threshold`: Minimum cosine similarity for example selection (default: 0.3)
+- `--icl_selection_strategy`: Example selection strategy, `semantic` or `hybrid` (default: `semantic`)
+
 The `--search_engine` option supports:
 - `local` (default): Entity-centric local search with entities, relations, community summaries, and source chunks.
 - `global`: Community-level global search with insight aggregation.
@@ -387,6 +419,3 @@ We will continue updating other GraphRAG frameworks as much as possible. If you 
 }
 
 ```
-
-
-

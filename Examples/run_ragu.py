@@ -11,6 +11,7 @@ from ragu.models.llm import LLMOpenAI
 from ragu.models.embedder import EmbedderOpenAI
 from ragu import KnowledgeGraph, BuilderArguments, Settings, SimpleChunker
 from ragu import TwoStageArtifactsExtractorLLM
+from ragu.common.prompts import ICLConfig
 
 logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 
@@ -69,6 +70,10 @@ async def process_corpus(
     sample,
     retrieve_topk,
     search_engine_type,
+    icl_enabled=False,
+    icl_num_examples=2,
+    icl_similarity_threshold=0.3,
+    icl_selection_strategy="semantic",
 ):
     logging.info(f"Processing corpus: {corpus_name}")
 
@@ -79,8 +84,22 @@ async def process_corpus(
     Settings.language = "english"
 
     chunker = SimpleChunker(max_chunk_size=1200, overlap=100)
+
+    icl_config = None
+    if icl_enabled:
+        icl_config = ICLConfig(
+            enabled=True,
+            num_examples=icl_num_examples,
+            language="english",
+            similarity_threshold=icl_similarity_threshold,
+            selection_strategy=icl_selection_strategy,
+            cache_embeddings=True,
+        )
+
     artifact_extractor = TwoStageArtifactsExtractorLLM(
         llm=llm,
+        embedder=embedder if icl_enabled else None,
+        icl_config=icl_config,
         do_entity_validation=True,
         do_relation_validation=True,
     )
@@ -225,6 +244,23 @@ def main():
         "--llm_api_key", default="",
         help="API key (can also use LLM_API_KEY env variable)",
     )
+    parser.add_argument(
+        "--icl_enabled", action="store_true", default=False,
+        help="Enable In-Context Learning (few-shot examples) for extraction",
+    )
+    parser.add_argument(
+        "--icl_num_examples", type=int, default=2,
+        help="Number of few-shot examples per extraction call (default: 2)",
+    )
+    parser.add_argument(
+        "--icl_similarity_threshold", type=float, default=0.3,
+        help="Minimum cosine similarity for example selection (default: 0.3)",
+    )
+    parser.add_argument(
+        "--icl_selection_strategy", default="semantic",
+        choices=["semantic", "hybrid"],
+        help="Example selection strategy (default: semantic)",
+    )
 
     args = parser.parse_args()
 
@@ -297,6 +333,10 @@ def main():
                 sample=args.sample,
                 retrieve_topk=args.retrieve_topk,
                 search_engine_type=args.search_engine,
+                icl_enabled=args.icl_enabled,
+                icl_num_examples=args.icl_num_examples,
+                icl_similarity_threshold=args.icl_similarity_threshold,
+                icl_selection_strategy=args.icl_selection_strategy,
             )
 
     asyncio.run(_run_all())
