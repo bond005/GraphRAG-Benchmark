@@ -16,6 +16,10 @@ from ragu.common.prompts import ICLConfig
 logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 
 
+def parse_retry_times(value: str) -> tuple[float, ...]:
+    return tuple(float(x) for x in value.split(","))
+
+
 def group_questions_by_source(question_list):
     grouped_questions = {}
     for question in question_list:
@@ -262,6 +266,47 @@ def main():
         help="Example selection strategy (default: semantic)",
     )
 
+    parser.add_argument(
+        "--llm_rate_max_simultaneous", type=int, default=5,
+        help="Max concurrent LLM requests (default: 5)",
+    )
+    parser.add_argument(
+        "--llm_rate_max_per_minute", type=int, default=60,
+        help="Max LLM requests per minute (default: 60)",
+    )
+    parser.add_argument(
+        "--llm_retry_times", type=parse_retry_times, default="2,4,8,16",
+        help="LLM retry wait schedule in seconds, comma-separated (default: 2,4,8,16)",
+    )
+    parser.add_argument(
+        "--embed_rate_max_simultaneous", type=int, default=20,
+        help="Max concurrent embedding requests (default: 20)",
+    )
+    parser.add_argument(
+        "--embed_rate_max_per_minute", type=int, default=500,
+        help="Max embedding requests per minute (default: 500)",
+    )
+    parser.add_argument(
+        "--embed_retry_times", type=parse_retry_times, default="2,2,2,2",
+        help="Embedding retry wait schedule in seconds, comma-separated (default: 2,2,2,2)",
+    )
+    parser.add_argument(
+        "--embed_timeout", type=float, default=120.0,
+        help="Per-request timeout for embedding calls in seconds (default: 120)",
+    )
+    parser.add_argument(
+        "--embed_batch_size", type=int, default=500,
+        help="Max texts per single embedding API call (default: 500)",
+    )
+    parser.add_argument(
+        "--max_concurrent_embed_batches", type=int, default=5,
+        help="Max concurrent embedding batch API calls (default: 5)",
+    )
+    parser.add_argument(
+        "--debug_errors", action="store_true", default=False,
+        help="Save failed API call arguments for debugging",
+    )
+
     args = parser.parse_args()
 
     corpus_path = SUBSET_PATHS[args.subset]["corpus"]
@@ -310,14 +355,35 @@ def main():
         logging.error(f"Failed to load questions: {e}")
         return
 
-    client = CachedAsyncOpenAI(
+    debug_dir = os.path.join(args.base_dir, "debug") if args.debug_errors else None
+
+    llm_client = CachedAsyncOpenAI(
         base_url=args.llm_base_url,
         api_key=api_key,
+        rate_max_simultaneous=args.llm_rate_max_simultaneous,
+        rate_max_per_minute=args.llm_rate_max_per_minute,
+        retry_times_sec=args.llm_retry_times,
         cache=os.path.join(args.base_dir, "llm_cache"),
+        debug_errors_storage=os.path.join(debug_dir, "llm") if debug_dir else None,
     )
-    llm = LLMOpenAI(client=client, model_name=args.model_name)
+    embed_client = CachedAsyncOpenAI(
+        base_url=args.llm_base_url,
+        api_key=api_key,
+        rate_max_simultaneous=args.embed_rate_max_simultaneous,
+        rate_max_per_minute=args.embed_rate_max_per_minute,
+        retry_times_sec=args.embed_retry_times,
+        embed_timeout=args.embed_timeout,
+        cache=os.path.join(args.base_dir, "embed_cache"),
+        debug_errors_storage=os.path.join(debug_dir, "embed") if debug_dir else None,
+    )
+
+    llm = LLMOpenAI(client=llm_client, model_name=args.model_name)
     embedder = EmbedderOpenAI(
-        client=client, model_name=args.embed_model, dim=args.embed_size
+        client=embed_client,
+        model_name=args.embed_model,
+        dim=args.embed_size,
+        batch_size=args.embed_batch_size,
+        max_concurrent_batches=args.max_concurrent_embed_batches,
     )
 
     async def _run_all():
