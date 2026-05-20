@@ -57,6 +57,14 @@ def convert_gml_to_graphml(working_dir):
                 graphml_path = os.path.join(subdir, "knowledge_graph.graphml")
                 try:
                     g = nx.read_gml(gml_path)
+                    for n, data in g.nodes(data=True):
+                        for key, val in data.items():
+                            if isinstance(val, (list, dict, tuple, set)):
+                                data[key] = json.dumps(val)
+                    for u, v, data in g.edges(data=True):
+                        for key, val in data.items():
+                            if isinstance(val, (list, dict, tuple, set)):
+                                data[key] = json.dumps(val)
                     nx.write_graphml(g, graphml_path)
                     logging.info(f"Converted {gml_path} -> {graphml_path}")
                 except Exception as e:
