@@ -96,8 +96,7 @@ async def process_corpus(
             num_examples=icl_num_examples,
             language="english",
             similarity_threshold=icl_similarity_threshold,
-            selection_strategy=icl_selection_strategy,
-            cache_embeddings=True,
+            selection_strategy=icl_selection_strategy
         )
 
     artifact_extractor = TwoStageArtifactsExtractorLLM(
