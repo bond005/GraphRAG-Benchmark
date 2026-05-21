@@ -84,7 +84,6 @@ async def process_corpus(
     search_engine_type,
     icl_enabled=False,
     icl_num_examples=2,
-    icl_similarity_threshold=0.3,
     icl_selection_strategy="semantic",
 ):
     logging.info(f"Processing corpus: {corpus_name}")
@@ -102,8 +101,6 @@ async def process_corpus(
         icl_config = ICLConfig(
             enabled=True,
             num_examples=icl_num_examples,
-            language="english",
-            similarity_threshold=icl_similarity_threshold,
             selection_strategy=icl_selection_strategy
         )
 
@@ -261,15 +258,11 @@ def main():
     )
     parser.add_argument(
         "--icl_num_examples", type=int, default=2,
-        help="Number of few-shot examples per extraction call (default: 2)",
-    )
-    parser.add_argument(
-        "--icl_similarity_threshold", type=float, default=0.3,
-        help="Minimum cosine similarity for example selection (default: 0.3)",
+        help="Number of few-shot examples per extraction call (default: 3)",
     )
     parser.add_argument(
         "--icl_selection_strategy", default="semantic",
-        choices=["semantic", "hybrid"],
+        choices=["semantic", "hybrid", "bm25", "random"],
         help="Example selection strategy (default: semantic)",
     )
 
@@ -408,7 +401,6 @@ def main():
                 search_engine_type=args.search_engine,
                 icl_enabled=args.icl_enabled,
                 icl_num_examples=args.icl_num_examples,
-                icl_similarity_threshold=args.icl_similarity_threshold,
                 icl_selection_strategy=args.icl_selection_strategy,
             )
 
