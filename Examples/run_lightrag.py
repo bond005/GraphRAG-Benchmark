@@ -46,9 +46,6 @@ Respond in plain text without explanations or formatting.
 Maintain conversation continuity and use the same language as the query.
 If the answer is unknown, respond with "I don't know".
 
----Conversation History---
-{history}
-
 ---Knowledge Base---
 {context_data}
 """
@@ -151,9 +148,9 @@ async def initialize_rag(
         working_dir=working_dir,
         llm_model_func=llm_model_func_input,
         llm_model_name=model_name,
-        llm_model_max_async=2,
+        llm_model_max_async=1,
         default_llm_timeout=900,
-        chunk_token_size=1200,
+        chunk_token_size=512,
         chunk_overlap_token_size=100,
         embedding_func=embedding_func,
         llm_model_kwargs=llm_kwargs
