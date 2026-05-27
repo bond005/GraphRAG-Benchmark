@@ -152,7 +152,7 @@ async def initialize_rag(
         llm_model_func=llm_model_func_input,
         llm_model_name=model_name,
         llm_model_max_async=4,
-        llm_model_max_token_size=32768,
+        default_llm_timeout=300,
         chunk_token_size=1200,
         chunk_overlap_token_size=100,
         embedding_func=embedding_func,
@@ -225,9 +225,9 @@ async def process_corpus(
         query_param = QueryParam(
             mode=query_type,
             top_k=retrieve_topk,
-            max_token_for_text_unit=4000,
-            max_token_for_global_context=4000,
-            max_token_for_local_context=4000,
+            max_entity_tokens=4000,
+            max_relation_tokens=4000,
+            max_total_tokens=12000,
             only_need_context=True
         )
         
@@ -247,9 +247,9 @@ async def process_corpus(
         query_param = QueryParam(
             mode=query_type,
             top_k=retrieve_topk,
-            max_token_for_text_unit=4000,
-            max_token_for_global_context=4000,
-            max_token_for_local_context=4000,
+            max_entity_tokens=4000,
+            max_relation_tokens=4000,
+            max_total_tokens=12000,
             only_need_context=False
         )
 

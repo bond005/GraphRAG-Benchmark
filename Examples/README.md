@@ -10,7 +10,7 @@ Next, we provide detailed instructions on how to use GraphRAG-Bench to evaluate 
 
 #### a. LightRAG
 
-**We use LightRAG version v1.2.5.**
+**We use LightRAG version v1.4.9.8.**
 
 You can run the following command to indexing and inference
 
