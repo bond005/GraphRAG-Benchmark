@@ -6,3 +6,5 @@ Examples/*_results
 Examples/results_*
 Examples/*_results_*
 __pycache__
+nohup.out
+*.sh
