@@ -5,13 +5,9 @@ import numpy as np
 import os
 from typing import Dict, List, Any
 from langchain_core.language_models import BaseLanguageModel
-from langchain_core.embeddings import Embeddings
 from datasets import Dataset
 from langchain_openai import ChatOpenAI
-from langchain_community.embeddings import HuggingFaceBgeEmbeddings
-from ragas.embeddings import LangchainEmbeddingsWrapper
 from Evaluation.metrics import compute_context_relevance, compute_evidence_recall
-from langchain_ollama import OllamaEmbeddings
 from Evaluation.llm import OllamaClient,OllamaWrapper
 
 SEED = 42
@@ -19,7 +15,6 @@ SEED = 42
 async def evaluate_dataset(
     dataset: Dataset,
     llm: Any,
-    embeddings: Embeddings,
     max_concurrent: int = 1,
     detailed_output: bool = False
 ) -> Dict[str, Any]:
@@ -46,8 +41,7 @@ async def evaluate_dataset(
                 question=questions[i],
                 contexts=contexts_list[i],
                 evidences=evidences[i],
-                llm=llm,
-                embeddings=embeddings
+                llm=llm
             )
             if detailed_output:
                 return {
@@ -105,8 +99,7 @@ async def evaluate_sample(
     question: str,
     contexts: List[str],
     evidences: List[str],
-    llm: Any,
-    embeddings: Embeddings
+    llm: Any
 ) -> Dict[str, float]:
     """Evaluate retrieval metrics for a single sample"""
     # Evaluate both metrics in parallel
@@ -151,9 +144,6 @@ async def main(args: argparse.Namespace):
             }
         )
         
-        # Initialize the embedding model
-        embedding = HuggingFaceBgeEmbeddings(model_name=args.embedding_model)
-
     elif args.mode == "ollama":
         ollama_client = OllamaClient(base_url=args.base_url)
         llm = OllamaWrapper(
@@ -166,11 +156,6 @@ async def main(args: argparse.Namespace):
                 "seed": SEED
             }
         )
-        ollama_embeddings = OllamaEmbeddings(
-            model=args.embedding_model,
-            base_url=args.base_url
-        )
-        embedding = LangchainEmbeddingsWrapper(embeddings=ollama_embeddings)
         
     else:
         raise ValueError(f"Invalid mode: {args.mode}")
@@ -221,7 +206,6 @@ async def main(args: argparse.Namespace):
         results = await evaluate_dataset(
             dataset=dataset,
             llm=llm, 
-            embeddings=embedding,
             detailed_output=args.detailed_output
         )
         
@@ -273,13 +257,6 @@ if __name__ == "__main__":
         type=str,
         default="https://api.openai.com/v1",
         help="Base URL for the OpenAI API"
-    )
-    
-    parser.add_argument(
-        "--embedding_model", 
-        type=str,
-        default="BAAI/bge-large-en-v1.5",
-        help="HuggingFace model for embeddings"
     )
     
     parser.add_argument(

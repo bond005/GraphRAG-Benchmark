@@ -7,8 +7,7 @@ from typing import Dict, List, Tuple, Any
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.embeddings import Embeddings
 from datasets import Dataset
-from langchain_openai import ChatOpenAI
-from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from Evaluation.metrics import compute_answer_correctness, compute_coverage_score, compute_faithfulness_score, compute_rouge_score
 from langchain_ollama import OllamaEmbeddings
 from Evaluation.llm import OllamaClient, OllamaWrapper
@@ -167,7 +166,11 @@ async def main(args: argparse.Namespace):
         )
         
         # Initialize the embedding model
-        embedding = HuggingFaceBgeEmbeddings(model_name=args.embedding_model)
+        embedding = OpenAIEmbeddings(
+            model=args.embedding_model,
+            base_url=args.embedding_base_url or args.base_url,
+            api_key=SecretStr(api_key),
+        )
     
     elif args.mode == "ollama":
         ollama_client = OllamaClient(base_url=args.base_url)
@@ -304,8 +307,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--embedding_model", 
         type=str,
-        default="BAAI/bge-large-en-v1.5",
-        help="HuggingFace model for embeddings"
+        default="text-embedding-3-small",
+        help="Embedding model name for the OpenAI-compatible API"
+    )
+
+    parser.add_argument(
+        "--embedding_base_url",
+        type=str,
+        default=None,
+        help="Base URL for the embedding API. Defaults to --base_url if not set."
     )
     
     parser.add_argument(
