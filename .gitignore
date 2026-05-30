@@ -8,3 +8,4 @@ Examples/*_results_*
 __pycache__
 nohup.out
 *.sh
+.opencode
