@@ -1,7 +1,7 @@
 import asyncio
 import json
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from typing import List, Dict, Tuple, Optional
 from langchain_core.language_models import BaseLanguageModel
 import re
@@ -193,6 +193,21 @@ async def generate_statements(
     # Fallback to single string wrapped in list
     return [str(parsed)]
 
+def _normalize_classification(raw: Dict) -> Dict:
+    """Convert string items in TP/FP/FN arrays to {statement, reason} dicts."""
+    for key in ("TP", "FP", "FN"):
+        items = raw.get(key)
+        if not isinstance(items, list):
+            continue
+        normalized = []
+        for item in items:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, str):
+                normalized.append({"statement": item, "reason": ""})
+        raw[key] = normalized
+    return raw
+
 async def calculate_factuality(
     llm: BaseLanguageModel,
     question: str,
@@ -203,15 +218,13 @@ async def calculate_factuality(
 ) -> float:
     """Classify statements and calculate factuality F-beta score"""
     if not answer_stmts and not gt_stmts:
-        return 1.0  # Perfect score if both empty
+        return 1.0
 
-    # Prepare examples for prompt
     examples = "\n".join(
         f"Input: {json.dumps(ex['input'])}\nOutput: {json.dumps(ex['output'])}"
         for ex in CORRECTNESS_EXAMPLES
     )
 
-    # Generate classification
     prompt = CORRECTNESS_PROMPT_TEMPLATE.format(
         examples=examples,
         question=question,
@@ -219,15 +232,16 @@ async def calculate_factuality(
         ground_truth=json.dumps(gt_stmts)
     )
     response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
-    
+
     try:
-        classification = ClassificationWithReason(**json.loads(response.content))
+        parsed = _normalize_classification(json.loads(response.content))
+        classification = ClassificationWithReason(**parsed)
         tp = len(classification.TP)
         fp = len(classification.FP)
         fn = len(classification.FN)
         return fbeta_score(tp, fp, fn, beta)
-    except (json.JSONDecodeError, TypeError):
-        return 0.0  # Return minimum score on failure
+    except (json.JSONDecodeError, TypeError, ValidationError):
+        return 0.0
 
 async def calculate_semantic_similarity(
     embeddings: Embeddings, answer: str, ground_truth: str
