@@ -1,40 +1,33 @@
-# lightrag_example.py
 import asyncio
 import os
 import logging
-import nest_asyncio
 import argparse
-import json
 from typing import List
-from datasets import load_dataset
 
+from common_utils import (
+    SUBSET_PATHS,
+    load_corpus_data,
+    load_question_data,
+    load_existing_results,
+    filter_processed_questions,
+    save_results_incremental,
+    make_error_result,
+    lightrag_index_exists,
+)
+
+import nest_asyncio
 from lightrag import LightRAG, QueryParam
 from lightrag.llm.openai import openai_complete_if_cache
 from lightrag.llm.hf import hf_embed
 from lightrag.utils import EmbeddingFunc
 from lightrag.kg.shared_storage import initialize_pipeline_status
-from transformers import AutoModel, AutoTokenizer
-from tqdm import tqdm
 from lightrag.llm.ollama import ollama_model_complete, ollama_embed
 
-# Apply nest_asyncio for Jupyter environments
+from transformers import AutoModel, AutoTokenizer
+from tqdm import tqdm
+
 nest_asyncio.apply()
 logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
-
-
-def group_questions_by_source(question_list):
-    grouped_questions = {}
-
-    for question in question_list:
-        source = question.get("source")
-
-        if source not in grouped_questions:
-            grouped_questions[source] = []
-
-        grouped_questions[source].append(question)
-
-    return grouped_questions
-
 
 SYSTEM_PROMPT = """
 ---Role---
@@ -50,6 +43,7 @@ If the answer is unknown, respond with "I don't know".
 {context_data}
 """
 
+
 async def llm_model_func(
     prompt: str,
     system_prompt: str = None,
@@ -57,12 +51,10 @@ async def llm_model_func(
     keyword_extraction: bool = False,
     **kwargs
 ) -> str:
-    """LLM interface function using OpenAI-compatible API"""
-    # Get API configuration from kwargs
     model_name = kwargs.pop("model_name", "qwen2.5-14b-instruct")
     base_url = kwargs.pop("base_url", "")
     api_key = kwargs.pop("api_key", "")
-    
+
     return await openai_complete_if_cache(
         model_name,
         prompt,
@@ -73,10 +65,11 @@ async def llm_model_func(
         **kwargs
     )
 
+
 async def initialize_rag(
     base_dir: str,
     source: str,
-    mode:str,
+    mode: str,
     model_name: str,
     embed_model_name: str,
     embed_size: int,
@@ -84,12 +77,9 @@ async def initialize_rag(
     llm_api_key: str,
     openai_emb: bool = False
 ) -> LightRAG:
-    """Initialize LightRAG instance for a specific corpus"""
     working_dir = os.path.join(base_dir, source)
-    
-    # Create directory for this corpus
     os.makedirs(working_dir, exist_ok=True)
-    
+
     if mode == "API":
         if openai_emb:
             from lightrag.llm.openai import openai_embed
@@ -116,8 +106,7 @@ async def initialize_rag(
                 max_token_size=8192,
                 func=lambda texts: hf_embed(texts, tokenizer, embed_model),
             )
-        
-        # Create LLM configuration
+
         llm_kwargs = {
             "model_name": model_name,
             "base_url": llm_base_url,
@@ -142,8 +131,7 @@ async def initialize_rag(
         llm_model_func_input = ollama_model_complete
     else:
         raise ValueError(f"Unsupported mode: {mode}. Use 'API' or 'ollama'.")
-    
-    # Create RAG instance
+
     rag = LightRAG(
         working_dir=working_dir,
         llm_model_func=llm_model_func_input,
@@ -160,6 +148,22 @@ async def initialize_rag(
     await initialize_pipeline_status()
     return rag
 
+
+async def _do_query(rag, question: str, query_type: str, retrieve_topk: int, only_context: bool) -> str:
+    query_param = QueryParam(
+        mode=query_type,
+        top_k=retrieve_topk,
+        max_entity_tokens=4000,
+        max_relation_tokens=4000,
+        max_total_tokens=12000,
+        only_need_context=only_context
+    )
+    response = rag.query(question, param=query_param, system_prompt=SYSTEM_PROMPT)
+    if asyncio.iscoroutine(response):
+        response = await response
+    return str(response)
+
+
 async def process_corpus(
     corpus_name: str,
     context: str,
@@ -171,15 +175,13 @@ async def process_corpus(
     embed_size: int,
     llm_base_url: str,
     llm_api_key: str,
-    questions: List[dict],
+    questions: dict,
     sample: int,
     retrieve_topk: int,
     openai_emb: bool = False
 ):
-    """Process a single corpus: index it and answer its questions"""
-    logging.info(f"📚 Processing corpus: {corpus_name}")
-    
-    # Initialize RAG for this corpus
+    logging.info(f"Processing corpus: {corpus_name}")
+
     rag = await initialize_rag(
         base_dir=base_dir,
         source=corpus_name,
@@ -191,118 +193,84 @@ async def process_corpus(
         llm_api_key=llm_api_key,
         openai_emb=openai_emb
     )
-    
-    # Index the corpus content
-    rag.insert(context)
-    logging.info(f"✅ Indexed corpus: {corpus_name} ({len(context.split())} words)")
-    
+
+    working_dir = os.path.join(base_dir, corpus_name)
+
+    # L7: skip indexing if graph already exists
+    if lightrag_index_exists(working_dir):
+        logging.info(f"Index already exists for {corpus_name}, skipping indexing")
+    else:
+        try:
+            await rag.ainsert(context)                                    # L1
+            logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
+        except Exception as e:
+            logging.error(f"Indexing failed for {corpus_name}: {e}")      # L2
+            try:
+                await rag.doc_status.index_done_callback()
+            except Exception:
+                pass
+            try:
+                await rag.text_chunks.index_done_callback()
+            except Exception:
+                pass
+        finally:
+            await rag.finalize_storages()                                 # L3
+
     corpus_questions = questions.get(corpus_name, [])
-    
     if not corpus_questions:
         logging.warning(f"No questions found for corpus: {corpus_name}")
         return
-    
-    # Sample questions if requested
+
     if sample and sample < len(corpus_questions):
         corpus_questions = corpus_questions[:sample]
-    
-    logging.info(f"🔍 Found {len(corpus_questions)} questions for {corpus_name}")
-    
-    # Prepare output path
+
+    logging.info(f"Found {len(corpus_questions)} questions for {corpus_name}")
+
     output_dir = f"{results_dir}/{corpus_name}"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
-    
-    # Process questions
-    results = []
+
+    # L6: resume
+    existing = load_existing_results(output_path)
+    pending = filter_processed_questions(corpus_questions, existing)
+    results = list(existing)
+
+    if pending:
+        logging.info(f"Resuming: {len(existing)} done, {len(pending)} remaining")
+    else:
+        logging.info(f"All {len(existing)} questions already processed")
+
     query_type = 'hybrid'
-    
-    for q in tqdm(corpus_questions, desc=f"Answering questions for {corpus_name}"):
-        # Prepare query parameters for retrieved context
-        query_param = QueryParam(
-            mode=query_type,
-            top_k=retrieve_topk,
-            max_entity_tokens=4000,
-            max_relation_tokens=4000,
-            max_total_tokens=12000,
-            only_need_context=True
-        )
-        
-        # Execute query
-        response = rag.query(
-            q["question"],
-            param=query_param,
-            system_prompt=SYSTEM_PROMPT
-        )
-        
-        # Handle both async and sync responses
-        if asyncio.iscoroutine(response):
-            response = await response
-        retrieved_context = str(response)
+    for q in tqdm(pending, desc=f"Answering questions for {corpus_name}"):
+        try:                                                              # L4
+            retrieved_context = await _do_query(rag, q["question"], query_type, retrieve_topk, only_context=True)
+            predicted_answer = await _do_query(rag, q["question"], query_type, retrieve_topk, only_context=False)
+            results.append({
+                "id": q["id"],
+                "question": q["question"],
+                "source": corpus_name,
+                "context": retrieved_context,
+                "evidence": q["evidence"],
+                "question_type": q["question_type"],
+                "generated_answer": predicted_answer,
+                "ground_truth": q.get("answer"),
+            })
+        except Exception as e:
+            logging.error(f"Failed to process question {q.get('id')}: {e}")
+            results.append(make_error_result(q, corpus_name, e))
+        save_results_incremental(output_path, results)                    # L5
 
-        # Prepare query parameters for predicted answer
-        query_param = QueryParam(
-            mode=query_type,
-            top_k=retrieve_topk,
-            max_entity_tokens=4000,
-            max_relation_tokens=4000,
-            max_total_tokens=12000,
-            only_need_context=False
-        )
+    logging.info(f"Saved {len(results)} predictions to: {output_path}")
 
-        # Execute query
-        response = rag.query(
-            q["question"],
-            param=query_param,
-            system_prompt=SYSTEM_PROMPT
-        )
-
-        # Handle both async and sync responses
-        if asyncio.iscoroutine(response):
-            response = await response
-        predicted_answer = str(response)
-
-        # Collect results
-        results.append({
-            "id": q["id"],
-            "question": q["question"],
-            "source": corpus_name,
-            "context": retrieved_context,
-            "evidence": q["evidence"],
-            "question_type": q["question_type"],
-            "generated_answer": predicted_answer,
-            "ground_truth": q.get("answer"),
-
-        })
-    
-    # Save results
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    
-    logging.info(f"💾 Saved {len(results)} predictions to: {output_path}")
 
 def main():
-    # Define subset paths
-    SUBSET_PATHS = {
-        "medical": {
-            "corpus": "./Datasets/Corpus/medical.parquet",
-            "questions": "./Datasets/Questions/medical_questions.parquet"
-        },
-        "novel": {
-            "corpus": "./Datasets/Corpus/novel.parquet",
-            "questions": "./Datasets/Questions/novel_questions.parquet"
-        }
-    }
-    
     parser = argparse.ArgumentParser(description="LightRAG: Process Corpora and Answer Questions")
-    
-    # Core arguments
-    parser.add_argument("--subset", required=True, choices=["medical", "novel"], 
+
+    parser.add_argument("--subset", required=True, choices=["medical", "novel"],
                         help="Subset to process (medical or novel)")
     parser.add_argument("--base_dir", default="./lightrag_workspace", help="Base working directory")
     parser.add_argument("--results_dir", default="./results", help="Directory with generated results")
-    
-    # Model configuration
+
     parser.add_argument("--mode", required=True, choices=["API", "ollama"], help="Use API or ollama for LLM")
     parser.add_argument("--model_name", default="qwen2.5-14b-instruct", help="LLM model identifier")
     parser.add_argument("--embed_model", default="Alibaba-NLP/gte-multilingual-base", help="Embedding model name")
@@ -310,73 +278,42 @@ def main():
     parser.add_argument("--retrieve_topk", type=int, default=5, help="Number of top documents to retrieve")
     parser.add_argument("--sample", type=int, default=None, help="Number of questions to sample per corpus")
     parser.add_argument("--openai_emb", action="store_true", help="Use OpenAI-compatible API for embeddings instead of local HuggingFace")
-    
-    # API configuration
-    parser.add_argument("--llm_base_url", default="https://api.openai.com/v1", 
+
+    parser.add_argument("--llm_base_url", default="https://api.openai.com/v1",
                         help="Base URL for LLM API")
-    parser.add_argument("--llm_api_key", default="", 
+    parser.add_argument("--llm_api_key", default="",
                         help="API key for LLM service (can also use LLM_API_KEY environment variable)")
 
     args = parser.parse_args()
-    
-    # Validate subset and mode
+
     if args.subset not in SUBSET_PATHS:
         logging.error(f"Invalid subset: {args.subset}. Valid options: {list(SUBSET_PATHS.keys())}")
         return
-    if args.mode not in ["API", "ollama"]:
-        logging.error(f'Invalid mode: {args.subset}. Valid options: {["API", "ollama"]}')
-        return
-    
-    # Get file paths for this subset
+
     corpus_path = SUBSET_PATHS[args.subset]["corpus"]
     questions_path = SUBSET_PATHS[args.subset]["questions"]
-    
-    # Handle API key security
+
     api_key = args.llm_api_key or os.getenv("LLM_API_KEY", "")
     if not api_key:
         logging.warning("No API key provided! Requests may fail.")
-    
-    # Create workspace directory
+
     os.makedirs(args.base_dir, exist_ok=True)
-    
-    # Load corpus data
+
     try:
-        corpus_dataset = load_dataset("parquet", data_files=corpus_path, split="train")
-        corpus_data = []
-        for item in corpus_dataset:
-            corpus_data.append({
-                "corpus_name": item["corpus_name"],
-                "context": item["context"]
-            })
-        logging.info(f"Loaded corpus with {len(corpus_data)} documents from {corpus_path}")
+        corpus_data = load_corpus_data(corpus_path)                       # L8
     except Exception as e:
         logging.error(f"Failed to load corpus: {e}")
         return
-    
-    # Sample corpus data if requested
+
     if args.sample:
         corpus_data = corpus_data[:1]
 
-    # Load question data
     try:
-        questions_dataset = load_dataset("parquet", data_files=questions_path, split="train")
-        question_data = []
-        for item in questions_dataset:
-            question_data.append({
-                "id": item["id"],
-                "source": item["source"],
-                "question": item["question"],
-                "answer": item["answer"],
-                "question_type": item["question_type"],
-                "evidence": item["evidence"]
-            })
-        grouped_questions = group_questions_by_source(question_data)
-        logging.info(f"Loaded questions with {len(question_data)} entries from {questions_path}")
+        _, grouped_questions = load_question_data(questions_path)         # L8
     except Exception as e:
         logging.error(f"Failed to load questions: {e}")
         return
-    
-    # Process each corpus concurrently in a single event loop
+
     async def _run_all():
         tasks = []
         for item in corpus_data:
@@ -405,6 +342,6 @@ def main():
 
     asyncio.run(_run_all())
 
+
 if __name__ == "__main__":
     main()
-

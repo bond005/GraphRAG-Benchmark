@@ -3,8 +3,18 @@ import os
 import logging
 import argparse
 import json
-from datasets import load_dataset
 from tqdm import tqdm
+
+from common_utils import (
+    SUBSET_PATHS,
+    load_corpus_data,
+    load_question_data,
+    load_existing_results,
+    filter_processed_questions,
+    save_results_incremental,
+    make_error_result,
+    ragu_index_exists,
+)
 
 from ragu.models.openai import CachedAsyncOpenAI
 from ragu.models.llm import LLMOpenAI
@@ -18,16 +28,6 @@ logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
 
 def parse_retry_times(value: str) -> tuple[float, ...]:
     return tuple(float(x) for x in value.split(","))
-
-
-def group_questions_by_source(question_list):
-    grouped_questions = {}
-    for question in question_list:
-        source = question.get("source")
-        if source not in grouped_questions:
-            grouped_questions[source] = []
-        grouped_questions[source].append(question)
-    return grouped_questions
 
 
 def create_search_engine(engine_type, llm, kg, embedder):
@@ -91,6 +91,10 @@ async def process_corpus(
     working_dir = os.path.join(base_dir, corpus_name)
     os.makedirs(working_dir, exist_ok=True)
 
+    output_dir = f"{results_dir}/{corpus_name}"
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
+
     Settings.storage_folder = working_dir
     Settings.language = "english"
 
@@ -125,10 +129,21 @@ async def process_corpus(
         builder_settings=builder_settings,
     )
 
-    await kg.build_from_docs([context])
-    logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
+    # R1: check if index already exists
+    if ragu_index_exists(working_dir):
+        logging.info(f"Index already exists for {corpus_name}, skipping indexing")
+    else:
+        try:
+            await kg.build_from_docs([context])
+            logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
+        except Exception as e:
+            logging.error(f"Indexing failed for {corpus_name}: {e}")
+            if not ragu_index_exists(working_dir):
+                logging.error(f"No index available for {corpus_name}, skipping queries")
+                return
+            logging.info(f"Partial index detected, proceeding with queries")
 
-    convert_gml_to_graphml(working_dir)
+        convert_gml_to_graphml(working_dir)
 
     engine = create_search_engine(search_engine_type, llm, kg, embedder)
 
@@ -142,12 +157,17 @@ async def process_corpus(
 
     logging.info(f"Found {len(corpus_questions)} questions for {corpus_name}")
 
-    output_dir = f"{results_dir}/{corpus_name}"
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
+    # R3: resume
+    existing = load_existing_results(output_path)
+    pending = filter_processed_questions(corpus_questions, existing)
+    results = list(existing)
 
-    results = []
-    for q in tqdm(corpus_questions, desc=f"Answering questions for {corpus_name}"):
+    if pending:
+        logging.info(f"Resuming: {len(existing)} done, {len(pending)} remaining")
+    else:
+        logging.info(f"All {len(existing)} questions already processed")
+
+    for q in tqdm(pending, desc=f"Answering questions for {corpus_name}"):
         try:
             if search_engine_type == "local":
                 response = await engine.a_query(
@@ -174,36 +194,14 @@ async def process_corpus(
             })
         except Exception as e:
             logging.error(f"Failed to process question {q.get('id')}: {e}")
-            results.append({
-                "id": q["id"],
-                "question": q["question"],
-                "source": corpus_name,
-                "context": "",
-                "evidence": q.get("evidence", ""),
-                "question_type": q.get("question_type", ""),
-                "generated_answer": "",
-                "ground_truth": q.get("answer", ""),
-                "error": str(e),
-            })
+            results.append(make_error_result(q, corpus_name, e))
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
+        save_results_incremental(output_path, results)                    # R2
 
     logging.info(f"Saved {len(results)} predictions to: {output_path}")
 
 
 def main():
-    SUBSET_PATHS = {
-        "medical": {
-            "corpus": "./Datasets/Corpus/medical.parquet",
-            "questions": "./Datasets/Questions/medical_questions.parquet",
-        },
-        "novel": {
-            "corpus": "./Datasets/Corpus/novel.parquet",
-            "questions": "./Datasets/Questions/novel_questions.parquet",
-        },
-    }
-
     parser = argparse.ArgumentParser(
         description="RAGU: Process Corpora and Answer Questions"
     )
@@ -319,12 +317,7 @@ def main():
     os.makedirs(args.base_dir, exist_ok=True)
 
     try:
-        corpus_dataset = load_dataset("parquet", data_files=corpus_path, split="train")
-        corpus_data = [
-            {"corpus_name": item["corpus_name"], "context": item["context"]}
-            for item in corpus_dataset
-        ]
-        logging.info(f"Loaded corpus with {len(corpus_data)} documents from {corpus_path}")
+        corpus_data = load_corpus_data(corpus_path)                       # R4
     except Exception as e:
         logging.error(f"Failed to load corpus: {e}")
         return
@@ -333,24 +326,7 @@ def main():
         corpus_data = corpus_data[:1]
 
     try:
-        questions_dataset = load_dataset(
-            "parquet", data_files=questions_path, split="train"
-        )
-        question_data = [
-            {
-                "id": item["id"],
-                "source": item["source"],
-                "question": item["question"],
-                "answer": item["answer"],
-                "question_type": item["question_type"],
-                "evidence": item["evidence"],
-            }
-            for item in questions_dataset
-        ]
-        grouped_questions = group_questions_by_source(question_data)
-        logging.info(
-            f"Loaded questions with {len(question_data)} entries from {questions_path}"
-        )
+        _, grouped_questions = load_question_data(questions_path)         # R4
     except Exception as e:
         logging.error(f"Failed to load questions: {e}")
         return
