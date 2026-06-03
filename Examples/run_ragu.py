@@ -98,7 +98,7 @@ async def process_corpus(
     Settings.storage_folder = working_dir
     Settings.language = "english"
 
-    chunker = SimpleChunker(max_chunk_size=1200, overlap=100)
+    chunker = SimpleChunker(max_chunk_size=500, overlap=100)
 
     icl_config = None
     if icl_enabled:
