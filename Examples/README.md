@@ -353,9 +353,9 @@ For the latest version with In-Context Learning (few-shot examples) support:
 pip install git+https://github.com/RaguTeam/RAGU.git@fewshots
 ```
 
-RAGU uses a unified OpenAI-compatible API client for both LLM and embeddings. To use a local embedding model (e.g., BGE), you need an OpenAI-compatible embedding server (such as TEI or vLLM) and point `--llm_base_url` to it, or use an API provider that serves your desired embedding model.
+RAGU uses OpenAI-compatible API clients for both LLM and embeddings. The `--llm_base_url` and `--embed_base_url` parameters control the endpoints independently. When `--embed_base_url` is not provided, it defaults to `--llm_base_url` (suitable for cloud providers like OpenAI where both services share the same endpoint).
 
-Run indexing and inference:
+**Cloud provider (e.g., OpenAI):**
 
 ```shell
 export LLM_API_KEY=your_actual_api_key_here
@@ -373,17 +373,48 @@ python run_ragu.py \
   # --sample 100
 ```
 
+**Local models via vLLM:**
+
+When using local LLM and embedding models, each must be served on a separate port:
+
+```shell
+# Terminal 1: start the LLM server
+vllm serve /path/to/your/model --port 8000 --host 0.0.0.0
+
+# Terminal 2: start the embedding server
+vllm serve BAAI/bge-large-en-v1.5 --port 8001 --host 0.0.0.0
+```
+
+Then run the script with separate URLs:
+
+```shell
+export LLM_API_KEY=EMPTY
+
+python run_ragu.py \
+  --subset medical \
+  --search_engine local \
+  --base_dir ./Examples/ragu_workspace \
+  --results_dir ./Examples/ragu_results \
+  --model_name /path/to/your/model \
+  --embed_model BAAI/bge-large-en-v1.5 \
+  --embed_size 1024 \
+  --retrieve_topk 5 \
+  --llm_base_url http://localhost:8000/v1 \
+  --embed_base_url http://localhost:8001/v1
+  # --sample 100
+```
+
 **In-Context Learning (few-shot examples):**
 
 When using the `fewshots` branch, you can enable In-Context Learning to improve entity/relation extraction quality during graph building. ICL selects the most relevant examples by semantic similarity and injects them into the LLM prompt:
 
 ```shell
+# Cloud
 python run_ragu.py \
   --subset medical \
   --search_engine local \
   --icl_enabled \
   --icl_num_examples 2 \
-  --icl_similarity_threshold 0.3 \
   --icl_selection_strategy semantic \
   --base_dir ./Examples/ragu_workspace \
   --results_dir ./Examples/ragu_results \
@@ -391,13 +422,27 @@ python run_ragu.py \
   --embed_model text-embedding-3-small \
   --embed_size 1536 \
   --llm_base_url https://api.openai.com/v1
+
+# Local (LLM on port 8000, embedding model on port 8001)
+python run_ragu.py \
+  --subset medical \
+  --search_engine local \
+  --icl_enabled \
+  --icl_num_examples 2 \
+  --icl_selection_strategy semantic \
+  --base_dir ./Examples/ragu_workspace \
+  --results_dir ./Examples/ragu_results \
+  --model_name /path/to/your/model \
+  --embed_model BAAI/bge-large-en-v1.5 \
+  --embed_size 1024 \
+  --llm_base_url http://localhost:8000/v1 \
+  --embed_base_url http://localhost:8001/v1
 ```
 
 ICL options:
 - `--icl_enabled`: Enable In-Context Learning for extraction (default: disabled)
 - `--icl_num_examples`: Number of few-shot examples per extraction call, 1-3 recommended (default: 2)
-- `--icl_similarity_threshold`: Minimum cosine similarity for example selection (default: 0.3)
-- `--icl_selection_strategy`: Example selection strategy, `semantic` or `hybrid` (default: `semantic`)
+- `--icl_selection_strategy`: Example selection strategy, `semantic`, `hybrid`, `bm25`, or `random` (default: `semantic`)
 
 The `--search_engine` option supports:
 - `local` (default): Entity-centric local search with entities, relations, community summaries, and source chunks.

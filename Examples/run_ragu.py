@@ -247,6 +247,10 @@ def main():
         help="Base URL for OpenAI-compatible API",
     )
     parser.add_argument(
+        "--embed_base_url", default=None,
+        help="Base URL for embedding API (defaults to --llm_base_url if not set)",
+    )
+    parser.add_argument(
         "--llm_api_key", default="",
         help="API key (can also use LLM_API_KEY env variable)",
     )
@@ -343,7 +347,7 @@ def main():
         debug_errors_storage=os.path.join(debug_dir, "llm") if debug_dir else None,
     )
     embed_client = CachedAsyncOpenAI(
-        base_url=args.llm_base_url,
+        base_url=args.embed_base_url or args.llm_base_url,
         api_key=api_key,
         rate_max_simultaneous=args.embed_rate_max_simultaneous,
         rate_max_per_minute=args.embed_rate_max_per_minute,
