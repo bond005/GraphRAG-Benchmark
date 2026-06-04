@@ -309,6 +309,33 @@ def main():
         help="Save failed API call arguments for debugging",
     )
 
+    parser.add_argument(
+        "--embedder_token_limit", type=int, default=None,
+        help="Max tokens per embedding input (default: Settings.embedder_token_limit = 8192)",
+    )
+    parser.add_argument(
+        "--tokenizer_embedder_backend", default=None,
+        choices=["tiktoken", "local"],
+        help="Tokenizer backend for embedder truncation (default: Settings default = tiktoken)",
+    )
+    parser.add_argument(
+        "--tokenizer_embedder_name", default=None,
+        help="Tokenizer model for embedder truncation (default: Settings default = text-embedding-3-large)",
+    )
+    parser.add_argument(
+        "--llm_context_token_limit", type=int, default=None,
+        help="Max tokens for LLM context in search engines (default: Settings.llm_context_token_limit = 30000)",
+    )
+    parser.add_argument(
+        "--tokenizer_llm_backend", default=None,
+        choices=["tiktoken", "local"],
+        help="Tokenizer backend for LLM context truncation (default: Settings default = tiktoken)",
+    )
+    parser.add_argument(
+        "--tokenizer_llm_name", default=None,
+        help="Tokenizer model for LLM context truncation (default: Settings default = gpt-4o)",
+    )
+
     args = parser.parse_args()
 
     corpus_path = SUBSET_PATHS[args.subset]["corpus"]
@@ -319,6 +346,19 @@ def main():
         logging.warning("No API key provided! Requests may fail.")
 
     os.makedirs(args.base_dir, exist_ok=True)
+
+    if args.embedder_token_limit is not None:
+        Settings.embedder_token_limit = args.embedder_token_limit
+    if args.tokenizer_embedder_backend is not None:
+        Settings.tokenizer_embedder_backend = args.tokenizer_embedder_backend
+    if args.tokenizer_embedder_name is not None:
+        Settings.tokenizer_embedder_name = args.tokenizer_embedder_name
+    if args.llm_context_token_limit is not None:
+        Settings.llm_context_token_limit = args.llm_context_token_limit
+    if args.tokenizer_llm_backend is not None:
+        Settings.tokenizer_llm_backend = args.tokenizer_llm_backend
+    if args.tokenizer_llm_name is not None:
+        Settings.tokenizer_llm_name = args.tokenizer_llm_name
 
     try:
         corpus_data = load_corpus_data(corpus_path)                       # R4
@@ -364,6 +404,9 @@ def main():
         dim=args.embed_size,
         batch_size=args.embed_batch_size,
         max_concurrent_batches=args.max_concurrent_embed_batches,
+        embedder_token_limit=args.embedder_token_limit,
+        tokenizer_backend=args.tokenizer_embedder_backend,
+        tokenizer_name=args.tokenizer_embedder_name,
     )
 
     async def _run_all():
