@@ -269,12 +269,12 @@ def main():
     )
 
     parser.add_argument(
-        "--llm_rate_max_simultaneous", type=int, default=5,
-        help="Max concurrent LLM requests (default: 5)",
+        "--llm_rate_max_simultaneous", type=int, default=10,
+        help="Max concurrent LLM requests (default: 10)",
     )
     parser.add_argument(
-        "--llm_rate_max_per_minute", type=int, default=60,
-        help="Max LLM requests per minute (default: 60)",
+        "--llm_rate_max_per_minute", type=int, default=1000,
+        help="Max LLM requests per minute (default: 1000)",
     )
     parser.add_argument(
         "--llm_retry_times", type=parse_retry_times, default="2,4,8,16",
