@@ -323,8 +323,8 @@ def main():
         help="Tokenizer model for embedder truncation (default: Settings default = text-embedding-3-large)",
     )
     parser.add_argument(
-        "--llm_context_token_limit", type=int, default=None,
-        help="Max tokens for LLM context in search engines (default: Settings.llm_context_token_limit = 30000)",
+        "--llm_context_token_limit", type=int, default=11000,
+        help="Max tokens for LLM context in search engines (default: Settings.llm_context_token_limit = 11000)",
     )
     parser.add_argument(
         "--tokenizer_llm_backend", default=None,
