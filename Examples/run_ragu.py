@@ -82,6 +82,7 @@ async def process_corpus(
     sample,
     retrieve_topk,
     search_engine_type,
+    max_concurrent_questions=6,
     icl_enabled=False,
     icl_num_examples=2,
     icl_selection_strategy="semantic",
@@ -167,22 +168,27 @@ async def process_corpus(
     else:
         logging.info(f"All {len(existing)} questions already processed")
 
-    for q in tqdm(pending, desc=f"Answering questions for {corpus_name}"):
+    semaphore = asyncio.Semaphore(max_concurrent_questions)
+    results_lock = asyncio.Lock()
+    pbar = tqdm(total=len(pending), desc=f"Answering questions for {corpus_name}")
+
+    async def process_one(q):
         try:
-            if search_engine_type == "local":
-                response = await engine.a_query(
-                    q["question"],
-                    top_k=retrieve_topk,
-                    use_summary=True,
-                    use_chunks=True,
-                )
-            else:
-                response = await engine.a_query(q["question"])
+            async with semaphore:
+                if search_engine_type == "local":
+                    response = await engine.a_query(
+                        q["question"],
+                        top_k=retrieve_topk,
+                        use_summary=True,
+                        use_chunks=True,
+                    )
+                else:
+                    response = await engine.a_query(q["question"])
 
             context_str = response.retrieval.to_text()
             generated_answer = str(response.response)
 
-            results.append({
+            result = {
                 "id": q["id"],
                 "question": q["question"],
                 "source": corpus_name,
@@ -191,12 +197,18 @@ async def process_corpus(
                 "question_type": q["question_type"],
                 "generated_answer": generated_answer,
                 "ground_truth": q.get("answer"),
-            })
+            }
         except Exception as e:
             logging.error(f"Failed to process question {q.get('id')}: {e}")
-            results.append(make_error_result(q, corpus_name, e))
+            result = make_error_result(q, corpus_name, e)
 
-        save_results_incremental(output_path, results)                    # R2
+        async with results_lock:
+            results.append(result)
+            save_results_incremental(output_path, results)
+        pbar.update(1)
+
+    await asyncio.gather(*[process_one(q) for q in pending])
+    pbar.close()
 
     logging.info(f"Saved {len(results)} predictions to: {output_path}")
 
@@ -303,6 +315,10 @@ def main():
     parser.add_argument(
         "--max_concurrent_embed_batches", type=int, default=5,
         help="Max concurrent embedding batch API calls (default: 5)",
+    )
+    parser.add_argument(
+        "--max_concurrent_questions", type=int, default=6,
+        help="Max concurrent questions to process (default: 6)",
     )
     parser.add_argument(
         "--debug_errors", action="store_true", default=False,
@@ -422,6 +438,7 @@ def main():
                 sample=args.sample,
                 retrieve_topk=args.retrieve_topk,
                 search_engine_type=args.search_engine,
+                max_concurrent_questions=args.max_concurrent_questions,
                 icl_enabled=args.icl_enabled,
                 icl_num_examples=args.icl_num_examples,
                 icl_selection_strategy=args.icl_selection_strategy,
