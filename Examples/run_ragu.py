@@ -87,6 +87,7 @@ async def process_corpus(
     icl_enabled=False,
     icl_num_examples=2,
     icl_selection_strategy="semantic",
+    use_validation=True
 ):
     logging.info(f"Processing corpus: {corpus_name} (phase={phase})")
 
@@ -114,8 +115,8 @@ async def process_corpus(
         llm=llm,
         embedder=embedder if icl_enabled else None,
         icl_config=icl_config,
-        do_entity_validation=True,
-        do_relation_validation=True,
+        do_entity_validation=use_validation,
+        do_relation_validation=use_validation,
     )
     builder_settings = BuilderArguments(
         use_llm_summarization=True,
@@ -287,6 +288,10 @@ def main():
         "--icl_selection_strategy", default="semantic",
         choices=["semantic", "hybrid", "bm25", "random"],
         help="Example selection strategy (default: semantic)",
+    )
+    parser.add_argument(
+        "--noval", action="store_true", default=False,
+        help="Don't use validation in the TwoStageArtifactsExtractor",
     )
 
     parser.add_argument(
@@ -464,6 +469,7 @@ def main():
                 icl_enabled=args.icl_enabled,
                 icl_num_examples=args.icl_num_examples,
                 icl_selection_strategy=args.icl_selection_strategy,
+                use_validation=not args.noval
             )
 
     asyncio.run(_run_all())
