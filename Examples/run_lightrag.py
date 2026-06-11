@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 import argparse
-from typing import List
+from typing import List, Optional
 
 from common_utils import (
     SUBSET_PATHS,
@@ -166,7 +166,7 @@ async def _do_query(rag, question: str, query_type: str, retrieve_topk: int, onl
 
 async def process_corpus(
     corpus_name: str,
-    context: str,
+    context: Optional[str],
     base_dir: str,
     results_dir: str,
     mode: str,
@@ -175,12 +175,13 @@ async def process_corpus(
     embed_size: int,
     llm_base_url: str,
     llm_api_key: str,
-    questions: dict,
+    questions: Optional[dict],
     sample: int,
     retrieve_topk: int,
+    phase: str = "all",
     openai_emb: bool = False
 ):
-    logging.info(f"Processing corpus: {corpus_name}")
+    logging.info(f"Processing corpus: {corpus_name} (phase={phase})")
 
     rag = await initialize_rag(
         base_dir=base_dir,
@@ -196,25 +197,29 @@ async def process_corpus(
 
     working_dir = os.path.join(base_dir, corpus_name)
 
-    # L7: skip indexing if graph already exists
-    if lightrag_index_exists(working_dir):
-        logging.info(f"Index already exists for {corpus_name}, skipping indexing")
-    else:
-        try:
-            await rag.ainsert(context)                                    # L1
-            logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
-        except Exception as e:
-            logging.error(f"Indexing failed for {corpus_name}: {e}")      # L2
+    if phase in ("all", "index"):
+        if lightrag_index_exists(working_dir):
+            logging.info(f"Index already exists for {corpus_name}, skipping indexing")
+        else:
             try:
-                await rag.doc_status.index_done_callback()
-            except Exception:
-                pass
-            try:
-                await rag.text_chunks.index_done_callback()
-            except Exception:
-                pass
-        finally:
-            await rag.finalize_storages()                                 # L3
+                await rag.ainsert(context)
+                logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
+            except Exception as e:
+                logging.error(f"Indexing failed for {corpus_name}: {e}")
+                try:
+                    await rag.doc_status.index_done_callback()
+                except Exception:
+                    pass
+                try:
+                    await rag.text_chunks.index_done_callback()
+                except Exception:
+                    pass
+            finally:
+                await rag.finalize_storages()
+
+    if phase == "index":
+        logging.info(f"Index-only phase complete for {corpus_name}")
+        return
 
     corpus_questions = questions.get(corpus_name, [])
     if not corpus_questions:
@@ -272,6 +277,8 @@ def main():
     parser.add_argument("--results_dir", default="./results", help="Directory with generated results")
 
     parser.add_argument("--mode", required=True, choices=["API", "ollama"], help="Use API or ollama for LLM")
+    parser.add_argument("--phase", default="all", choices=["all", "index", "query"],
+                        help="Execution phase: 'all' (default), 'index' (build graph only), 'query' (answer questions only)")
     parser.add_argument("--model_name", default="qwen2.5-14b-instruct", help="LLM model identifier")
     parser.add_argument("--embed_model", default="Alibaba-NLP/gte-multilingual-base", help="Embedding model name")
     parser.add_argument("--embed_size", type=int, default=768, help="Embedding size")
@@ -299,28 +306,40 @@ def main():
 
     os.makedirs(args.base_dir, exist_ok=True)
 
-    try:
-        corpus_data = load_corpus_data(corpus_path)                       # L8
-    except Exception as e:
-        logging.error(f"Failed to load corpus: {e}")
-        return
+    need_index = args.phase in ("all", "index")
+    need_query = args.phase in ("all", "query")
 
-    if args.sample:
-        corpus_data = corpus_data[:1]
+    corpus_items = None
+    if need_index:
+        try:
+            corpus_data = load_corpus_data(corpus_path)
+        except Exception as e:
+            logging.error(f"Failed to load corpus: {e}")
+            return
+        if args.sample:
+            corpus_data = corpus_data[:1]
+        corpus_items = [{"corpus_name": item["corpus_name"], "context": item["context"]} for item in corpus_data]
 
-    try:
-        _, grouped_questions = load_question_data(questions_path)         # L8
-    except Exception as e:
-        logging.error(f"Failed to load questions: {e}")
-        return
+    grouped_questions = None
+    if need_query:
+        try:
+            _, grouped_questions = load_question_data(questions_path)
+        except Exception as e:
+            logging.error(f"Failed to load questions: {e}")
+            return
+
+    if corpus_items is None:
+        corpus_items = [{"corpus_name": name, "context": None} for name in grouped_questions.keys()]
+        if args.sample:
+            corpus_items = corpus_items[:1]
 
     async def _run_all():
         tasks = []
-        for item in corpus_data:
+        for item in corpus_items:
             tasks.append(
                 process_corpus(
                     corpus_name=item["corpus_name"],
-                    context=item["context"],
+                    context=item.get("context"),
                     base_dir=args.base_dir,
                     results_dir=args.results_dir,
                     mode=args.mode,
@@ -332,6 +351,7 @@ def main():
                     questions=grouped_questions,
                     sample=args.sample,
                     retrieve_topk=args.retrieve_topk,
+                    phase=args.phase,
                     openai_emb=args.openai_emb
                 )
             )

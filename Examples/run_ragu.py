@@ -82,12 +82,13 @@ async def process_corpus(
     sample,
     retrieve_topk,
     search_engine_type,
+    phase="all",
     max_concurrent_questions=6,
     icl_enabled=False,
     icl_num_examples=2,
     icl_selection_strategy="semantic",
 ):
-    logging.info(f"Processing corpus: {corpus_name}")
+    logging.info(f"Processing corpus: {corpus_name} (phase={phase})")
 
     working_dir = os.path.join(base_dir, corpus_name)
     os.makedirs(working_dir, exist_ok=True)
@@ -130,21 +131,25 @@ async def process_corpus(
         builder_settings=builder_settings,
     )
 
-    # R1: check if index already exists
-    if ragu_index_exists(working_dir):
-        logging.info(f"Index already exists for {corpus_name}, skipping indexing")
-    else:
-        try:
-            await kg.build_from_docs([context])
-            logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
-        except Exception as e:
-            logging.error(f"Indexing failed for {corpus_name}: {e}")
-            if not ragu_index_exists(working_dir):
-                logging.error(f"No index available for {corpus_name}, skipping queries")
-                return
-            logging.info(f"Partial index detected, proceeding with queries")
+    if phase in ("all", "index"):
+        if ragu_index_exists(working_dir):
+            logging.info(f"Index already exists for {corpus_name}, skipping indexing")
+        else:
+            try:
+                await kg.build_from_docs([context])
+                logging.info(f"Indexed corpus: {corpus_name} ({len(context.split())} words)")
+            except Exception as e:
+                logging.error(f"Indexing failed for {corpus_name}: {e}")
+                if not ragu_index_exists(working_dir):
+                    logging.error(f"No index available for {corpus_name}, skipping queries")
+                    return
+                logging.info(f"Partial index detected, proceeding with queries")
 
-        convert_gml_to_graphml(working_dir)
+            convert_gml_to_graphml(working_dir)
+
+    if phase == "index":
+        logging.info(f"Index-only phase complete for {corpus_name}")
+        return
 
     engine = create_search_engine(search_engine_type, llm, kg, embedder)
 
@@ -220,6 +225,10 @@ def main():
     parser.add_argument(
         "--subset", required=True, choices=["medical", "novel"],
         help="Subset to process (medical or novel)",
+    )
+    parser.add_argument(
+        "--phase", default="all", choices=["all", "index", "query"],
+        help="Execution phase: 'all' (default), 'index' (build graph only), 'query' (answer questions only)",
     )
     parser.add_argument(
         "--base_dir", default="./Examples/ragu_workspace",
@@ -376,20 +385,32 @@ def main():
     if args.tokenizer_llm_name is not None:
         Settings.tokenizer_llm_name = args.tokenizer_llm_name
 
-    try:
-        corpus_data = load_corpus_data(corpus_path)                       # R4
-    except Exception as e:
-        logging.error(f"Failed to load corpus: {e}")
-        return
+    need_index = args.phase in ("all", "index")
+    need_query = args.phase in ("all", "query")
 
-    if args.sample:
-        corpus_data = corpus_data[:1]
+    corpus_items = None
+    if need_index:
+        try:
+            corpus_data = load_corpus_data(corpus_path)
+        except Exception as e:
+            logging.error(f"Failed to load corpus: {e}")
+            return
+        if args.sample:
+            corpus_data = corpus_data[:1]
+        corpus_items = [{"corpus_name": item["corpus_name"], "context": item["context"]} for item in corpus_data]
 
-    try:
-        _, grouped_questions = load_question_data(questions_path)         # R4
-    except Exception as e:
-        logging.error(f"Failed to load questions: {e}")
-        return
+    grouped_questions = None
+    if need_query:
+        try:
+            _, grouped_questions = load_question_data(questions_path)
+        except Exception as e:
+            logging.error(f"Failed to load questions: {e}")
+            return
+
+    if corpus_items is None:
+        corpus_items = [{"corpus_name": name, "context": None} for name in grouped_questions.keys()]
+        if args.sample:
+            corpus_items = corpus_items[:1]
 
     debug_dir = os.path.join(args.base_dir, "debug") if args.debug_errors else None
 
@@ -426,10 +447,10 @@ def main():
     )
 
     async def _run_all():
-        for item in corpus_data:
+        for item in corpus_items:
             await process_corpus(
                 corpus_name=item["corpus_name"],
-                context=item["context"],
+                context=item.get("context"),
                 base_dir=args.base_dir,
                 results_dir=args.results_dir,
                 llm=llm,
@@ -438,6 +459,7 @@ def main():
                 sample=args.sample,
                 retrieve_topk=args.retrieve_topk,
                 search_engine_type=args.search_engine,
+                phase=args.phase,
                 max_concurrent_questions=args.max_concurrent_questions,
                 icl_enabled=args.icl_enabled,
                 icl_num_examples=args.icl_num_examples,
