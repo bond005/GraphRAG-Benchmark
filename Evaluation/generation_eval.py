@@ -14,39 +14,59 @@ from Evaluation.llm import OllamaClient, OllamaWrapper
 
 SEED = 42
 
+def _save_partial(path, results, detailed_results, detailed_output):
+    """Save partial evaluation results to a file for crash recovery."""
+    avg_results = {metric: float(np.nanmean(scores)) for metric, scores in results.items()}
+    if detailed_output:
+        data = {"average_scores": avg_results, "detailed": detailed_results}
+    else:
+        data = avg_results
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except (OSError, ValueError):
+        pass
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=2)
+
 async def evaluate_dataset(
     dataset: Dataset,
     metrics: List[str],
     llm: Any,
     embeddings: Embeddings,
-    max_concurrent: int = 1,  # Limit concurrent evaluations
-    detailed_output: bool = False
+    max_concurrent: int = 3,
+    detailed_output: bool = False,
+    sample_timeout: int = 300,
+    partial_save_path: str = None
 ) -> Dict[str, Any]:
     """Evaluate the metric scores on the entire dataset."""
     results = {metric: [] for metric in metrics}
     detailed_results = [] if detailed_output else None
-    
+
     ids = dataset["id"]
     questions = dataset["question"]
     answers = dataset["answer"]
     contexts_list = dataset["contexts"]
     ground_truths = dataset["ground_truth"]
-    
+
     total_samples = len(questions)
     print(f"\nStarting evaluation of {total_samples} samples...")
-    
+
     semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     async def evaluate_with_semaphore(i):
         async with semaphore:
-            sample_metrics = await evaluate_sample(
-                question=questions[i],
-                answer=answers[i],
-                contexts=contexts_list[i],
-                ground_truth=ground_truths[i],
-                metrics=metrics,
-                llm=llm,
-                embeddings=embeddings
+            print(f"\u25b6 Starting sample {i+1}/{total_samples}")
+            sample_metrics = await asyncio.wait_for(
+                evaluate_sample(
+                    question=questions[i],
+                    answer=answers[i],
+                    contexts=contexts_list[i],
+                    ground_truth=ground_truths[i],
+                    metrics=metrics,
+                    llm=llm,
+                    embeddings=embeddings
+                ),
+                timeout=sample_timeout
             )
             if detailed_output:
                 return {
@@ -83,10 +103,19 @@ async def evaluate_dataset(
                         if isinstance(score, (int, float)) and not np.isnan(score):
                             results[metric].append(score)
             completed += 1
-            print(f"✅ Completed sample {completed}/{total_samples} - {(completed/total_samples)*100:.1f}%")
-        except Exception as e:
-            print(f"❌ Sample failed: {e}")
+            print(f"\u2705 Completed sample {completed}/{total_samples} - {(completed/total_samples)*100:.1f}%")
+        except asyncio.TimeoutError:
             completed += 1
+            print(f"\u23f0 Sample {completed}/{total_samples} TIMED OUT after {sample_timeout}s \u2014 skipping")
+        except Exception as e:
+            completed += 1
+            print(f"\u274c Sample {completed}/{total_samples} failed: {e}")
+
+        if partial_save_path and completed % 10 == 0:
+            _save_partial(partial_save_path, results, detailed_results, detailed_output)
+
+    if partial_save_path:
+        _save_partial(partial_save_path, results, detailed_results, detailed_output)
     
     avg_results = {metric: np.nanmean(scores) for metric, scores in results.items()}
     
@@ -249,12 +278,16 @@ async def main(args: argparse.Namespace):
             dataset = dataset.select([i for i in list(range(args.num_samples))])
 
         # Perform evaluation
+        partial_path = f"{args.output_file}.partial.{question_type}" if args.output_file else None
         results = await evaluate_dataset(
             dataset=dataset,
             metrics=metric_config[question_type],
             llm=llm, 
             embeddings=embedding,
-            detailed_output=args.detailed_output
+            detailed_output=args.detailed_output,
+            max_concurrent=args.max_concurrent,
+            sample_timeout=args.sample_timeout,
+            partial_save_path=partial_path
         )
         
         all_results[question_type] = results
@@ -265,6 +298,12 @@ async def main(args: argparse.Namespace):
         else:
             for metric, score in results.items():
                 print(f"  {metric}: {score:.4f}")
+
+        if args.output_file:
+            os.makedirs(os.path.dirname(args.output_file), exist_ok=True)
+            with open(args.output_file, 'w') as f:
+                json.dump(all_results, f, indent=2)
+            print(f"  (partial results saved to {args.output_file})")
     
     # Save final results
     if args.output_file:
@@ -343,6 +382,20 @@ if __name__ == "__main__":
         "--detailed_output",
         action="store_true",
         help="Whether to include detailed output"
+    )
+
+    parser.add_argument(
+        "--max_concurrent",
+        type=int,
+        default=3,
+        help="Maximum number of concurrent sample evaluations"
+    )
+
+    parser.add_argument(
+        "--sample_timeout",
+        type=int,
+        default=300,
+        help="Hard timeout in seconds per sample (skips stuck samples)"
     )
     
     args = parser.parse_args()
