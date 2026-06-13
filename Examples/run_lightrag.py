@@ -156,7 +156,8 @@ async def _do_query(rag, question: str, query_type: str, retrieve_topk: int, onl
         max_entity_tokens=4000,
         max_relation_tokens=4000,
         max_total_tokens=12000,
-        only_need_context=only_context
+        only_need_context=only_context,
+        enable_rerank=False
     )
     response = rag.query(question, param=query_param, system_prompt=SYSTEM_PROMPT)
     if asyncio.iscoroutine(response):

@@ -42,7 +42,7 @@ def create_search_engine(engine_type, llm, kg, embedder):
         from ragu.search_engine.global_search import GlobalSearchEngine
         from ragu.search_engine.mix_search import MixSearchEngine
         local = LocalSearchEngine(llm=llm, knowledge_graph=kg, embedder=embedder)
-        global_ = GlobalSearchEngine(llm=llm, knowledge_graph=kg, embedder=embedder)
+        global_ = GlobalSearchEngine(llm=llm, knowledge_graph=kg)
         return MixSearchEngine(llm=llm, engines=[local, global_])
     else:
         raise ValueError(f"Unknown search engine type: {engine_type}")
@@ -87,7 +87,8 @@ async def process_corpus(
     icl_enabled=False,
     icl_num_examples=2,
     icl_selection_strategy="semantic",
-    use_validation=True
+    use_validation=True,
+    ensemble_responses=False,
 ):
     logging.info(f"Processing corpus: {corpus_name} (phase={phase})")
 
@@ -188,6 +189,12 @@ async def process_corpus(
                         use_summary=True,
                         use_chunks=True,
                     )
+                elif search_engine_type == "mix":
+                    response = await engine.a_query(
+                        q["question"],
+                        top_k=retrieve_topk,
+                        ensemble_responses=ensemble_responses,
+                    )
                 else:
                     response = await engine.a_query(q["question"])
 
@@ -256,9 +263,13 @@ def main():
         help="Number of top results to retrieve",
     )
     parser.add_argument(
-        "--search_engine", default="local",
+        "--search_engine", default="mix",
         choices=["local", "global", "mix"],
-        help="Search engine type (default: local)",
+        help="Search engine type (default: mix)",
+    )
+    parser.add_argument(
+        "--ensemble_responses", action="store_true", default=False,
+        help="In mix mode, ensemble per-engine answers instead of combining raw contexts (default: False)",
     )
     parser.add_argument(
         "--sample", type=int, default=None,
@@ -274,7 +285,11 @@ def main():
     )
     parser.add_argument(
         "--llm_api_key", default="",
-        help="API key (can also use LLM_API_KEY env variable)",
+        help="API key for LLM (can also use LLM_API_KEY env variable)",
+    )
+    parser.add_argument(
+        "--emb_api_key", default="",
+        help="API key for embedder (can also use EMB_API_KEY env variable)",
     )
     parser.add_argument(
         "--icl_enabled", action="store_true", default=False,
@@ -371,9 +386,13 @@ def main():
     corpus_path = SUBSET_PATHS[args.subset]["corpus"]
     questions_path = SUBSET_PATHS[args.subset]["questions"]
 
-    api_key = args.llm_api_key or os.getenv("LLM_API_KEY", "")
-    if not api_key:
-        logging.warning("No API key provided! Requests may fail.")
+    llm_api_key = args.llm_api_key or os.getenv("LLM_API_KEY", "")
+    if not llm_api_key:
+        logging.warning("No LLM API key provided! Requests may fail.")
+
+    emb_api_key = args.emb_api_key or os.getenv("EMB_API_KEY", "")
+    if not emb_api_key:
+        emb_api_key = llm_api_key
 
     os.makedirs(args.base_dir, exist_ok=True)
 
@@ -421,7 +440,7 @@ def main():
 
     llm_client = CachedAsyncOpenAI(
         base_url=args.llm_base_url,
-        api_key=api_key,
+        api_key=llm_api_key,
         rate_max_simultaneous=args.llm_rate_max_simultaneous,
         rate_max_per_minute=args.llm_rate_max_per_minute,
         retry_times_sec=args.llm_retry_times,
@@ -430,7 +449,7 @@ def main():
     )
     embed_client = CachedAsyncOpenAI(
         base_url=args.embed_base_url or args.llm_base_url,
-        api_key=api_key,
+        api_key=emb_api_key,
         rate_max_simultaneous=args.embed_rate_max_simultaneous,
         rate_max_per_minute=args.embed_rate_max_per_minute,
         retry_times_sec=args.embed_retry_times,
@@ -469,7 +488,8 @@ def main():
                 icl_enabled=args.icl_enabled,
                 icl_num_examples=args.icl_num_examples,
                 icl_selection_strategy=args.icl_selection_strategy,
-                use_validation=not args.noval
+                use_validation=not args.noval,
+                ensemble_responses=args.ensemble_responses,
             )
 
     asyncio.run(_run_all())
