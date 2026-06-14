@@ -89,6 +89,7 @@ async def process_corpus(
     icl_selection_strategy="semantic",
     use_validation=True,
     ensemble_responses=False,
+    retry_errors=True,
 ):
     logging.info(f"Processing corpus: {corpus_name} (phase={phase})")
 
@@ -166,7 +167,14 @@ async def process_corpus(
     logging.info(f"Found {len(corpus_questions)} questions for {corpus_name}")
 
     # R3: resume
-    existing = load_existing_results(output_path)
+    all_existing = load_existing_results(output_path)
+    if retry_errors:
+        existing = [r for r in all_existing if "error" not in r]
+        dropped = len(all_existing) - len(existing)
+        if dropped:
+            logging.info(f"Dropping {dropped} errored result(s) for re-processing")
+    else:
+        existing = list(all_existing)
     pending = filter_processed_questions(corpus_questions, existing)
     results = list(existing)
 
@@ -307,6 +315,11 @@ def main():
     parser.add_argument(
         "--noval", action="store_true", default=False,
         help="Don't use validation in the TwoStageArtifactsExtractor",
+    )
+    parser.add_argument(
+        "--retry_errors", action=argparse.BooleanOptionalAction, default=True,
+        help="Re-process questions that previously errored (default: True). "
+             "Use --no-retry_errors to keep errored entries as-is.",
     )
 
     parser.add_argument(
@@ -490,6 +503,7 @@ def main():
                 icl_selection_strategy=args.icl_selection_strategy,
                 use_validation=not args.noval,
                 ensemble_responses=args.ensemble_responses,
+                retry_errors=args.retry_errors,
             )
 
     asyncio.run(_run_all())
