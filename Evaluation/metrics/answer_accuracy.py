@@ -234,13 +234,17 @@ async def calculate_factuality(
     response = await llm.ainvoke(prompt, config={"callbacks": callbacks})
 
     try:
-        parsed = _normalize_classification(json.loads(response.content))
+        handler = JSONHandler()
+        parsed_raw = await handler.parse_with_fallbacks(response.content)
+        if not isinstance(parsed_raw, dict):
+            raise TypeError(f"Expected dict classification, got {type(parsed_raw).__name__}")
+        parsed = _normalize_classification(parsed_raw)
         classification = ClassificationWithReason(**parsed)
         tp = len(classification.TP)
         fp = len(classification.FP)
         fn = len(classification.FN)
         return fbeta_score(tp, fp, fn, beta)
-    except (json.JSONDecodeError, TypeError, ValidationError):
+    except (TypeError, ValidationError):
         return 0.0
 
 async def calculate_semantic_similarity(

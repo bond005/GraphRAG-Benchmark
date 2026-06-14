@@ -5,6 +5,7 @@ import json_repair
 from typing import List, Optional, Any, Union
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.callbacks.base import Callbacks
+from langchain_core.output_parsers import JsonOutputParser
 
 
 class JSONHandler:
@@ -58,10 +59,19 @@ class JSONHandler:
         for i in items:
             if isinstance(i, str) and i.strip():
                 cleaned.append(i.strip())
-            elif isinstance(i, dict):  
+            elif isinstance(i, dict):
                 cleaned.append(i)
         return cleaned
 
+    def _select_result(self, data: Any, key: Optional[str]) -> Optional[Union[List[str], dict]]:
+        """Apply optional key selection and normalize empty parse results."""
+        if key:
+            if isinstance(data, dict) and key in data:
+                return self.validate_list(data[key])
+            return None
+        if data:
+            return data
+        return None
 
     async def parse_with_fallbacks(
         self,
@@ -73,28 +83,35 @@ class JSONHandler:
         """Parse with multiple fallback strategies and optional LLM repair."""
         content = re.sub(r"```(?:json)?|```", "", raw_text).strip()
 
-        # 1. Direct parse
-        data = self.safe_json_parse(content)
-        if key and key in data:
-            return self.validate_list(data[key])
-        elif not key and data:
-            return data
+        # 1. LangChain parser handles common JSON-in-Markdown responses.
+        try:
+            parsed = JsonOutputParser().parse(raw_text)
+            selected = self._select_result(parsed, key)
+            if selected is not None:
+                return selected
+        except Exception:
+            pass
 
-        # 2. Extract block
+        # 2. Direct parse
+        data = self.safe_json_parse(content)
+        selected = self._select_result(data, key)
+        if selected is not None:
+            return selected
+
+        # 3. Extract block
         json_block = self.extract_json_block(content)
         data = self.safe_json_parse(json_block)
-        if key and key in data:
-            return self.validate_list(data[key])
-        elif not key and data:
-            return data
+        selected = self._select_result(data, key)
+        if selected is not None:
+            return selected
 
-        # 3. Fallback array
+        # 4. Fallback array
         if key:
             fallback_array = self.extract_array_fallback(content)
             if fallback_array:
                 return self.validate_list(fallback_array)
 
-        # 4. Self-healing
+        # 5. Self-healing
         if self.self_healing and llm is not None:
             healed = await self.heal_with_llm(raw_text, key, llm, callbacks)
             if healed:
