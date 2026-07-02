@@ -247,7 +247,7 @@ def main():
     parser.add_argument("--llm_base_url", default="https://api.openai.com/v1",
                         help="Base URL for LLM API")
     parser.add_argument("--llm_api_key", default="",
-                        help="API key for LLM service (can also use OPENAI_API_KEY environment variable)")
+                        help="API key for LLM service (can also use LLM_API_KEY or OPENAI_API_KEY environment variable)")
 
     args = parser.parse_args()
 
@@ -260,11 +260,11 @@ def main():
     corpus_path = SUBSET_PATHS[args.subset]["corpus"]
     questions_path = SUBSET_PATHS[args.subset]["questions"]
 
-    api_key = args.llm_api_key or os.getenv("OPENAI_API_KEY", "")
+    api_key = args.llm_api_key or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         logging.warning("No API key provided! Requests may fail.")
 
-    if args.openai_emb and api_key:
+    if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
 
     os.makedirs(args.base_dir, exist_ok=True)
