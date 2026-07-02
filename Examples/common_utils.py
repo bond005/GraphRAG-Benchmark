@@ -109,9 +109,10 @@ def fast_graphrag_index_exists(working_dir: str) -> bool:
     return os.path.exists(graph_file) and os.path.exists(chunks_file)
 
 
-def hipporag_index_exists(save_dir: str, llm_name: str, embed_name: str) -> bool:
-    working_dir = os.path.join(save_dir, f"{llm_name}_{embed_name}")
-    graph_file = os.path.join(working_dir, "graph.pickle")
+def hipporag_index_exists(save_dir: str, llm_name: str = None, embed_name: str = None) -> bool:
+    # Flat layout: graph.pickle lives directly under save_dir (HippoRAG's working_dir
+    # now equals save_dir). llm_name/embed_name are kept for backward compatibility only.
+    graph_file = os.path.join(save_dir, "graph.pickle")
     return os.path.exists(graph_file)
 
 
