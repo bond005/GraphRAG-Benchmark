@@ -21,7 +21,12 @@ from common_utils import (
 
 load_dotenv()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+import hipporag
+
+DSPY_FILTER_PATH = os.path.join(
+    os.path.dirname(hipporag.__file__),
+    "prompts", "dspy_prompts", "filter_llama3.3-70B-Instruct.json",
+)
 
 from hipporag.HippoRAG import HippoRAG
 from hipporag.utils.misc_utils import string_to_bool
@@ -121,7 +126,7 @@ def process_corpus(
         embedding_model_name=embedding_model_name,
         force_index_from_scratch=True,
         force_openie_from_scratch=True,
-        rerank_dspy_file_path="hipporag/prompts/dspy_prompts/filter_llama3.3-70B-Instruct.json",
+        rerank_dspy_file_path=DSPY_FILTER_PATH,
         retrieval_top_k=5,
         linking_top_k=5,
         max_qa_steps=3,
