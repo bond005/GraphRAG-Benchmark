@@ -79,11 +79,15 @@ def process_corpus(
     llm_api_key: str,
     questions: Dict[str, List[dict]],
     sample: int,
-    openai_emb: bool = False
+    results_dir: str = "./results/hipporag2",
+    phase: str = "all",
+    openai_emb: bool = False,
+    retrieve_topk: int = 5,
+    qa_top_k: int = 5
 ):
-    logging.info(f"Processing corpus: {corpus_name}")
+    logging.info(f"Processing corpus: {corpus_name} (phase={phase})")
 
-    output_dir = f"./results/hipporag2/{corpus_name}"
+    output_dir = os.path.join(results_dir, corpus_name)
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"predictions_{corpus_name}.json")
 
@@ -103,16 +107,6 @@ def process_corpus(
 
     docs = [f'{idx}:{chunk}' for idx, chunk in enumerate(chunks)]
 
-    corpus_questions = questions.get(corpus_name, [])
-    if not corpus_questions:
-        logging.warning(f"No questions found for corpus: {corpus_name}")
-        return
-
-    if sample and sample < len(corpus_questions):
-        corpus_questions = corpus_questions[:sample]
-
-    logging.info(f"Found {len(corpus_questions)} questions for {corpus_name}")
-
     embedding_model_name = embed_model_path if not openai_emb else "text-embedding-3-small"
 
     # H1/H2: check if graph already exists before indexing (Approach A)
@@ -127,10 +121,10 @@ def process_corpus(
         force_index_from_scratch=True,
         force_openie_from_scratch=True,
         rerank_dspy_file_path=DSPY_FILTER_PATH,
-        retrieval_top_k=5,
+        retrieval_top_k=retrieve_topk,
         linking_top_k=5,
         max_qa_steps=3,
-        qa_top_k=5,
+        qa_top_k=qa_top_k,
         graph_type="facts_and_sim_passage_node_unidirectional",
         embedding_batch_size=8,
         max_new_tokens=None,
@@ -153,18 +147,37 @@ def process_corpus(
     hipporag = HippoRAG(global_config=config)
 
     # H3/H4: skip indexing if graph already exists
-    if index_exists:
-        logging.info(f"Index already exists for {corpus_name}, skipping indexing")
-    else:
-        try:
-            hipporag.index(docs)
-            logging.info(f"Indexed corpus: {corpus_name}")
-        except Exception as e:
-            logging.error(f"Indexing failed for {corpus_name}: {e}")
-            if not hipporag_index_exists(save_dir, model_name, embedding_model_name):
-                logging.error(f"No index available for {corpus_name}, skipping queries")
-                return
-            logging.info(f"Partial index detected for {corpus_name}, proceeding with queries")
+    if phase in ("all", "index"):
+        if index_exists:
+            logging.info(f"Index already exists for {corpus_name}, skipping indexing")
+        else:
+            try:
+                hipporag.index(docs)
+                logging.info(f"Indexed corpus: {corpus_name}")
+            except Exception as e:
+                logging.error(f"Indexing failed for {corpus_name}: {e}")
+                if not hipporag_index_exists(save_dir, model_name, embedding_model_name):
+                    logging.error(f"No index available for {corpus_name}, skipping queries")
+                    return
+                logging.info(f"Partial index detected for {corpus_name}, proceeding with queries")
+
+    if phase == "index":
+        logging.info(f"Index-only phase complete for {corpus_name}")
+        return
+
+    if phase == "query" and not hipporag_index_exists(save_dir, model_name, embedding_model_name):
+        logging.error(f"No index found for {corpus_name}, cannot run query-only phase")
+        return
+
+    corpus_questions = questions.get(corpus_name, [])
+    if not corpus_questions:
+        logging.warning(f"No questions found for corpus: {corpus_name}")
+        return
+
+    if sample and sample < len(corpus_questions):
+        corpus_questions = corpus_questions[:sample]
+
+    logging.info(f"Found {len(corpus_questions)} questions for {corpus_name}")
 
     # H6/H7: resume + incremental save
     existing = load_existing_results(output_path)
@@ -209,6 +222,10 @@ def main():
                         help="Subset to process (medical or novel)")
     parser.add_argument("--base_dir", default="./hipporag2_workspace",
                         help="Base working directory for HippoRAG")
+    parser.add_argument("--results_dir", default="./results/hipporag2",
+                        help="Directory for generated results")
+    parser.add_argument("--phase", default="all", choices=["all", "index", "query"],
+                        help="Execution phase: 'all' (default), 'index' (build graph only), 'query' (answer questions only)")
 
     parser.add_argument("--mode", choices=["API", "ollama"], default="API",
                         help="Use API or ollama for LLM")
@@ -221,6 +238,11 @@ def main():
     parser.add_argument("--sample", type=int, default=None,
                         help="Number of questions to sample per corpus")
     parser.add_argument("--openai_emb", action="store_true", help="Use OpenAI-compatible API for embeddings instead of local HuggingFace")
+
+    parser.add_argument("--retrieve_topk", type=int, default=5,
+                        help="Number of top passages to retrieve and store as context (HippoRAG retrieval_top_k). Also used as qa_top_k when --qa_top_k is not given. For a fair comparison with other frameworks, set this equal to their --retrieve_topk.")
+    parser.add_argument("--qa_top_k", type=int, default=None,
+                        help="Number of retrieved passages fed to the QA model (HippoRAG qa_top_k). Defaults to --retrieve_topk. Must not exceed --retrieve_topk.")
 
     parser.add_argument("--llm_base_url", default="https://api.openai.com/v1",
                         help="Base URL for LLM API")
@@ -247,6 +269,12 @@ def main():
 
     os.makedirs(args.base_dir, exist_ok=True)
 
+    need_query = args.phase in ("all", "query")
+
+    qa_top_k = args.qa_top_k if args.qa_top_k is not None else args.retrieve_topk
+    if qa_top_k > args.retrieve_topk:
+        parser.error(f"--qa_top_k ({qa_top_k}) must not exceed --retrieve_topk ({args.retrieve_topk})")
+
     try:
         corpus_data = load_corpus_data(corpus_path)
     except Exception as e:
@@ -256,11 +284,13 @@ def main():
     if args.sample:
         corpus_data = corpus_data[:1]
 
-    try:
-        _, grouped_questions = load_question_data(questions_path)
-    except Exception as e:
-        logging.error(f"Failed to load questions: {e}")
-        return
+    grouped_questions = None
+    if need_query:
+        try:
+            _, grouped_questions = load_question_data(questions_path)
+        except Exception as e:
+            logging.error(f"Failed to load questions: {e}")
+            return
 
     async def _run_all():
         tasks = []
@@ -278,7 +308,11 @@ def main():
                 api_key,
                 grouped_questions,
                 args.sample,
+                args.results_dir,
+                args.phase,
                 args.openai_emb,
+                args.retrieve_topk,
+                qa_top_k,
             ))
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:

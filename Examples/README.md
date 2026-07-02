@@ -310,17 +310,53 @@ Then you can run the following command to indexing and inference:
 
 **Note**: Mode can choose:"API" or "ollama". When you choose "ollama" the "llm_base_url" is where your is ollama running (default:http://localhost:11434)
 
+The `--phase` flag controls the execution stage (default: `all`):
+- `--phase all`: build the graph and answer questions (default).
+- `--phase index`: build the graph only (no questions are answered). Run this once to persist the index under `--base_dir`.
+- `--phase query`: answer questions only, reusing the existing index. The corpus is still loaded to compute chunking metadata required by the HippoRAG config, but the expensive indexing step is skipped.
+
+Unlike other frameworks whose single `--retrieve_topk` governs both retrieval and generation, HippoRAG exposes two independent knobs. They are controlled here as follows:
+- `--retrieve_topk` (default `5`): number of passages retrieved and stored in the output `context` (HippoRAG `retrieval_top_k`).
+- `--qa_top_k` (default: same as `--retrieve_topk`): number of retrieved passages fed to the QA model (HippoRAG `qa_top_k`). Must not exceed `--retrieve_topk`.
+
+**For a fair comparison with RAGU/LightRAG**, set `--retrieve_topk` to the same value as their `--retrieve_topk` (e.g. `--retrieve_topk 30`). This keeps the retrieval budget for generation and the size of the saved `context` consistent across frameworks. Note that increasing `--qa_top_k` enlarges the generation prompt and thus slows inference; this cost is shared by all frameworks at the same `top_k`.
+
 ```shell
 export OPENAI_API_KEY=your_actual_api_key_here
 
+# Build the graph and answer questions in one run (default phase: all)
 python run_hipporag2.py \
   --subset medical \
-  --mode API\
+  --mode API \
   --base_dir ./Examples/hipporag2_workspace \
   --model_name gpt-4o-mini \
   --embed_model_path /path/to/your/local/bge-large-en-v1.5 \
-  # --sample 100 \
   --llm_base_url https://api.openai.com/v1
+  # --sample 100 \
+  # --results_dir ./results/hipporag2
+  # --retrieve_topk 30        # match other frameworks' --retrieve_topk for fair comparison
+
+# Or split into two stages:
+# 1) Index only (build the graph once)
+python run_hipporag2.py \
+  --subset medical \
+  --phase index \
+  --mode API \
+  --base_dir ./Examples/hipporag2_workspace \
+  --model_name gpt-4o-mini \
+  --embed_model_path /path/to/your/local/bge-large-en-v1.5 \
+  --llm_base_url https://api.openai.com/v1
+
+# 2) Inference only (reuse the existing index)
+python run_hipporag2.py \
+  --subset medical \
+  --phase query \
+  --mode API \
+  --base_dir ./Examples/hipporag2_workspace \
+  --model_name gpt-4o-mini \
+  --embed_model_path /path/to/your/local/bge-large-en-v1.5 \
+  --llm_base_url https://api.openai.com/v1 \
+  --retrieve_topk 30
 ```
 
 #### d. DIGIMON
