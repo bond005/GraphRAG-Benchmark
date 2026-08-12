@@ -6,7 +6,6 @@ langchain_openai==0.3.28
 langchain_ollama
 numpy
 pydantic==2.11.7
-ragas==0.2.15
 rouge_score==0.1.2
 json5
 json_repair
