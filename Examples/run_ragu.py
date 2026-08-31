@@ -44,6 +44,9 @@ def create_search_engine(engine_type, llm, kg, embedder):
         local = LocalSearchEngine(llm=llm, knowledge_graph=kg, embedder=embedder)
         global_ = GlobalSearchEngine(llm=llm, knowledge_graph=kg)
         return MixSearchEngine(llm=llm, engines=[local, global_])
+    elif engine_type == "naive":
+        from ragu.search_engine.naive_search import NaiveSearchEngine
+        return NaiveSearchEngine(llm=llm, knowledge_graph=kg, embedder=embedder)
     else:
         raise ValueError(f"Unknown search engine type: {engine_type}")
 
@@ -272,7 +275,7 @@ def main():
     )
     parser.add_argument(
         "--search_engine", default="mix",
-        choices=["local", "global", "mix"],
+        choices=["local", "global", "mix", "naive"],
         help="Search engine type (default: mix)",
     )
     parser.add_argument(
